@@ -1,4 +1,3 @@
-// backend/controllers/profileController.js
 import UserProfile from "../models/UserProfile.js";
 
 /**
@@ -7,7 +6,7 @@ import UserProfile from "../models/UserProfile.js";
  * - Accepts medicalFlags from frontend and persists them.
  * - Computes derived nutrition targets server-side (mirrors frontend engine).
  * - Ensures safe guardrails (protein + fat <= calories) and applies minimal floors if necessary.
- * - Returns the saved/created profile JSON.
+ * - Persists and returns only standardized canonical field names (no legacy fields).
  */
 
 /* ---------- Server-side compute function (mirrors frontend nutrition engine) ---------- */
@@ -74,8 +73,8 @@ const computeServerDerived = (profile) => {
       const adjProteinCalories = adjProteinGrams ? adjProteinGrams * 4 : null;
       if (adjProteinCalories + fatCalories <= dailyCalories) {
         proteinFactor = adjFactor;
-        proteinGrams = Math.round(adjProteinGrams);
-        proteinCalories = Math.round(adjProteinCalories);
+        proteinGrams = adjProteinGrams;
+        proteinCalories = adjProteinCalories;
         adjusted = true;
         break;
       }
@@ -87,14 +86,14 @@ const computeServerDerived = (profile) => {
     }
   }
 
-  // Final rounded values
+  // Final rounded values (user-friendly)
   const finalProteinGrams = proteinGrams ? Math.round(proteinGrams) : null;
-  const finalProteinCalories = proteinCalories ? Math.round(proteinCalories) : null;
+  const finalProteinCalories = finalProteinGrams !== null ? finalProteinGrams * 4 : null;
   const finalFatGrams = fatGrams ? Math.round(fatGrams) : null;
-  const finalFatCalories = fatCalories ? Math.round(fatCalories) : null;
+  const finalFatCalories = finalFatGrams !== null ? finalFatGrams * 9 : null;
 
   // Carbs take the remainder
-  let carbCalories = dailyCalories ? dailyCalories - (finalProteinCalories || 0) - (finalFatCalories || 0) : null;
+  let carbCalories = dailyCalories ? Math.round(dailyCalories) - (finalProteinCalories || 0) - (finalFatCalories || 0) : null;
   if (carbCalories !== null && carbCalories < 0) carbCalories = 0;
   const carbGrams = carbCalories ? Math.round(carbCalories / 4) : null;
 
@@ -102,19 +101,26 @@ const computeServerDerived = (profile) => {
   const diabetes = !!(medicalFlags && medicalFlags.diabetes);
   const sugarLimitPercent = diabetes ? 0.03 : 0.05; // fraction of calories
   const sugarUpperPercent = diabetes ? 0.05 : 0.10;
-  const dailySugarLimit = dailyCalories ? Math.round((dailyCalories * sugarLimitPercent) / 4) : null;
-  const dailySugarUpper = dailyCalories ? Math.round((dailyCalories * sugarUpperPercent) / 4) : null;
+  const dailySugarLimit = dailyCalories ? Math.round((Math.round(dailyCalories) * sugarLimitPercent) / 4) : null;
+  const dailySugarUpper = dailyCalories ? Math.round((Math.round(dailyCalories) * sugarUpperPercent) / 4) : null;
 
+  // Fiber target: use guideline 14 g per 1000 kcal (rounded)
+  const dailyFiber = dailyCalories ? Math.round((Math.round(dailyCalories) / 1000) * 14) : null;
+
+  // Return standardized canonical fields only
   return {
     bmi: bmiRounded,
     bmr: bmr ? Math.round(bmr) : null,
     maintenanceCalories: maintenance ? Math.round(maintenance) : null,
-    dailyCalories: dailyCalories ? Math.round(dailyCalories) : null,
-    dailyProtein: finalProteinGrams,
-    dailyFat: finalFatGrams,
-    dailyCarbs: carbGrams,
+    // standardized field names for daily targets
+    dailyCalorieTarget: dailyCalories ? Math.round(dailyCalories) : null,
+    dailyProteinTarget: finalProteinGrams,
+    dailyFatTarget: finalFatGrams,
+    dailyCarbsTarget: carbGrams,
     dailySugarLimit,
     dailySugarUpper,
+    // include fiber target (standardized)
+    dailyFiberTarget: dailyFiber,
     nutritionEngineVersion: "server-1.1.0",
     computedAt: new Date(),
   };
@@ -124,6 +130,8 @@ const computeServerDerived = (profile) => {
 
 export const updateProfile = async (req, res) => {
   try {
+    // Accept canonical keys; also accept legacy keys defensively and map them to canonical names.
+    // We will NOT persist legacy keys — only canonical standardized names are stored.
     const {
       userId,
       age,
@@ -134,7 +142,36 @@ export const updateProfile = async (req, res) => {
       dietPreference,
       goal,
       medicalFlags,
+      // Accept computed fields if client sends them (but server will recompute authoritative values)
+      // Legacy keys (if present) will be mapped below but not persisted.
+      dailyCalories: legacyDailyCalories,
+      dailyProtein: legacyDailyProtein,
+      dailyFat: legacyDailyFat,
+      dailyCarbs: legacyDailyCarbs,
+      dailyFiber: legacyDailyFiber,
     } = req.body;
+
+    // Defensive mapping: if client sent legacy computed fields, map them into a canonical shape for processing.
+    // Note: server will compute authoritative derived values using computeServerDerived below.
+    const incomingProfile = {
+      age,
+      gender,
+      heightCm,
+      weightKg,
+      activityLevel,
+      goal,
+      medicalFlags: medicalFlags || {},
+      // If legacy fields exist and some inputs are missing, we do not rely on them for core computation.
+      // This mapping is only to preserve compatibility for any downstream logic that might read these values.
+      // We do not persist legacy fields.
+      _legacy: {
+        dailyCalories: legacyDailyCalories,
+        dailyProtein: legacyDailyProtein,
+        dailyFat: legacyDailyFat,
+        dailyCarbs: legacyDailyCarbs,
+        dailyFiber: legacyDailyFiber,
+      },
+    };
 
     let profile = await UserProfile.findOne({ userId });
 
@@ -150,7 +187,7 @@ export const updateProfile = async (req, res) => {
     });
 
     if (profile) {
-      // Update fields
+      // Update personal fields
       profile.age = age;
       profile.gender = gender;
       profile.heightCm = heightCm;
@@ -165,16 +202,17 @@ export const updateProfile = async (req, res) => {
         pregnancy: !!(medicalFlags && medicalFlags.pregnancy),
       };
 
-      // Persist derived
+      // Persist derived using standardized canonical names only
       profile.bmi = derived.bmi;
       profile.bmr = derived.bmr;
       profile.maintenanceCalories = derived.maintenanceCalories;
-      profile.dailyCalories = derived.dailyCalories;
-      profile.dailyProtein = derived.dailyProtein;
-      profile.dailyFat = derived.dailyFat;
-      profile.dailyCarbs = derived.dailyCarbs;
+      profile.dailyCalorieTarget = derived.dailyCalorieTarget;
+      profile.dailyProteinTarget = derived.dailyProteinTarget;
+      profile.dailyFatTarget = derived.dailyFatTarget;
+      profile.dailyCarbsTarget = derived.dailyCarbsTarget;
       profile.dailySugarLimit = derived.dailySugarLimit;
       profile.dailySugarUpper = derived.dailySugarUpper;
+      profile.dailyFiberTarget = derived.dailyFiberTarget;
       profile.nutritionEngineVersion = derived.nutritionEngineVersion;
       profile.computedAt = derived.computedAt;
       profile.updatedAt = new Date();
@@ -182,6 +220,7 @@ export const updateProfile = async (req, res) => {
       await profile.save();
     } else {
       // Create new profile with derived values and medicalFlags
+      // Only canonical fields are included in the created document.
       profile = await UserProfile.create({
         userId,
         age,
@@ -199,7 +238,11 @@ export const updateProfile = async (req, res) => {
       });
     }
 
-    res.json(profile);
+    // Return the saved profile (Mongoose document). It contains only canonical fields per schema.
+    // Convert to plain object for response.
+    const out = profile.toObject ? profile.toObject() : { ...profile };
+
+    res.json(out);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -218,7 +261,10 @@ export const getProfile = async (req, res) => {
       });
     }
 
-    res.json(profile);
+    // Convert to plain object and ensure only canonical fields are returned
+    const out = profile.toObject ? profile.toObject() : { ...profile };
+
+    res.json(out);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

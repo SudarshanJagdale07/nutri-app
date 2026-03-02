@@ -130,7 +130,7 @@ function Profile() {
     try {
       setSaving(true);
 
-      // Prepare payload: include computed fields for canonical storage
+      // Prepare payload: include computed fields for canonical storage (standardized names)
       const payload = {
         userId: user._id,
         age: Number(form.age),
@@ -141,16 +141,18 @@ function Profile() {
         dietPreference: form.dietPreference,
         goal: form.goal,
         medicalFlags: form.medicalFlags || { diabetes: false, pregnancy: false },
-        // computed fields
+        // computed fields (standardized)
         bmi: computed?.bmi,
         bmr: computed?.bmr,
         maintenanceCalories: computed?.maintenanceCalories,
-        dailyCalories: computed?.dailyCalorieTarget,
-        dailyProtein: computed?.dailyProteinTarget,
-        dailyFat: computed?.dailyFatTarget,
-        dailyCarbs: computed?.dailyCarbsTarget,
+        dailyCalorieTarget: computed?.dailyCalorieTarget,
+        dailyProteinTarget: computed?.dailyProteinTarget,
+        dailyFatTarget: computed?.dailyFatTarget,
+        dailyCarbsTarget: computed?.dailyCarbsTarget,
         dailySugarLimit: computed?.dailySugarLimit,
         dailySugarUpper: computed?.dailySugarUpper,
+        // fiber field (standardized)
+        dailyFiberTarget: computed?.dailyFiberTarget,
         nutritionEngineVersion: computed?.nutritionEngineVersion,
         computedAt: computed?.computedAt,
       };
@@ -326,12 +328,15 @@ function Profile() {
 
               <MetricCard title="BMR" value={computed?.bmr || form.bmr} suffix="kcal" />
 
-              <MetricCard title="Daily Calories" value={computed?.dailyCalorieTarget || form.dailyCalories} suffix="kcal" />
-              <MetricCard title="Daily Protein" value={computed?.dailyProteinTarget || form.dailyProtein} suffix="g" />
+              <MetricCard title="Daily Calories" value={computed?.dailyCalorieTarget || form.dailyCalorieTarget} suffix="kcal" />
+              <MetricCard title="Daily Protein" value={computed?.dailyProteinTarget || form.dailyProteinTarget} suffix="g" />
 
               {/* New small blocks for Fat and Carbs */}
-              <MetricCard title="Daily Fat" value={computed?.dailyFatTarget || form.dailyFat} suffix="g" />
-              <MetricCard title="Daily Carbs" value={computed?.dailyCarbsTarget || form.dailyCarbs} suffix="g" />
+              <MetricCard title="Daily Fat" value={computed?.dailyFatTarget || form.dailyFatTarget} suffix="g" />
+              <MetricCard title="Daily Carbs" value={computed?.dailyCarbsTarget || form.dailyCarbsTarget} suffix="g" />
+
+              {/* Daily Fiber metric added */}
+              <MetricCard title="Daily Fiber" value={computed?.dailyFiberTarget || form.dailyFiberTarget} suffix="g" />
             </div>
 
             {/* BMI level block styled like sugar limit block (placed above sugar block)

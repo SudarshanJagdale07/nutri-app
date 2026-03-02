@@ -5,51 +5,57 @@ import mongoose from "mongoose";
  * UserProfile schema
  *
  * Notes:
- * - Added medicalFlags object so frontend can persist flags like diabetes/pregnancy.
- * - Added explicit derived fields (maintenanceCalories, dailyProtein, dailyFat, dailyCarbs, dailySugarLimit, dailySugarUpper)
- *   so the frontend can read back canonical computed targets after save.
- * - Kept timestamps and updatedAt for auditing.
+ * - medicalFlags object persists flags like diabetes/pregnancy.
+ * - Derived fields (maintenanceCalories, dailyProteinTarget, dailyFatTarget, dailyCarbsTarget, dailySugarLimit, dailySugarUpper, dailyFiberTarget)
+ * - This schema uses canonical standardized field names only (no legacy fields).
  */
 
-const userProfileSchema = new mongoose.Schema(
-  {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+const { Schema } = mongoose;
 
+const UserProfileSchema = new Schema(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+
+    // Personal details
     age: { type: Number },
-    gender: { type: String },
+    gender: { type: String, enum: ["male", "female", "other"], default: "male" },
     heightCm: { type: Number },
     weightKg: { type: Number },
 
-    activityLevel: { type: String, enum: ["sedentary", "light", "moderate", "active", "very_active"] },
-    dietPreference: { type: String, enum: ["veg", "non-veg", "vegan", "pescatarian"] },
+    // Preferences
+    activityLevel: { type: String },
+    dietPreference: { type: String },
+    goal: { type: String },
 
-    goal: { type: String, enum: ["weight_loss", "muscle_gain", "maintain"] },
-
-    // Medical flags persisted as explicit booleans
+    // Medical flags
     medicalFlags: {
       diabetes: { type: Boolean, default: false },
       pregnancy: { type: Boolean, default: false },
-      // future flags can be added here
     },
 
-    // Derived values (persisted)
+    // Derived / computed fields (stored for auditability)
     bmi: { type: Number },
     bmr: { type: Number },
     maintenanceCalories: { type: Number },
-    dailyCalories: { type: Number },
-    dailyProtein: { type: Number },
-    dailyFat: { type: Number },
-    dailyCarbs: { type: Number },
+
+    // Daily targets (standardized canonical field names)
+    dailyCalorieTarget: { type: Number },
+    dailyProteinTarget: { type: Number },
+    dailyFatTarget: { type: Number },
+    dailyCarbsTarget: { type: Number },
     dailySugarLimit: { type: Number },
     dailySugarUpper: { type: Number },
+
+    // Standardized fiber target
+    dailyFiberTarget: { type: Number },
 
     // Engine metadata
     nutritionEngineVersion: { type: String },
     computedAt: { type: Date },
 
-    updatedAt: { type: Date, default: Date.now },
+    // Timestamps
   },
   { timestamps: true }
 );
 
-export default mongoose.model("UserProfile", userProfileSchema);
+export default mongoose.models.UserProfile || mongoose.model("UserProfile", UserProfileSchema);

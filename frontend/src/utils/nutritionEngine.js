@@ -6,14 +6,14 @@
  * - Maintenance calories
  * - Goal scaling (weight_loss: 0.80, maintain: 1.00, muscle_gain: 1.10)
  * - Protein by bodyweight (g/kg) with activity adjustment
- * - Mandatory minimum fat: 0.6 g/kg
+ * - Fat: percentage-of-calories target with g/kg clamps (min 0.6, max 1.2)
  * - Carbs = remainder calories after protein + fat
  * - Sugar limits (WHO-based) with diabetes adjustment
  *
  * Returns a canonical object with intermediate values and final targets.
  */
 
-const NUTRITION_ENGINE_VERSION = "1.1.0";
+const NUTRITION_ENGINE_VERSION = "1.2.0";
 
 function round(value) {
   return Math.round(value);
@@ -105,15 +105,15 @@ export function computeProfileTargets(inputs) {
   const maintenance = bmr ? bmr * multiplier : null;
 
   // Goal scaling
-  let dailyCalories = maintenance ? maintenance : null;
-  if (dailyCalories && !pregnancy) {
+  let dailyCaloriesFloat = maintenance ? maintenance : null;
+  if (dailyCaloriesFloat && !pregnancy) {
     // accept both 'muscle_gain' and 'gain' for compatibility
-    if (goal === "weight_loss") dailyCalories = maintenance * 0.8;
-    else if (goal === "muscle_gain" || goal === "gain") dailyCalories = maintenance * 1.1;
-    else dailyCalories = maintenance * 1.0;
-  } else if (dailyCalories && pregnancy) {
+    if (goal === "weight_loss") dailyCaloriesFloat = maintenance * 0.8;
+    else if (goal === "muscle_gain" || goal === "gain") dailyCaloriesFloat = maintenance * 1.1;
+    else dailyCaloriesFloat = maintenance * 1.0;
+  } else if (dailyCaloriesFloat && pregnancy) {
     // pregnancy: do not apply deficit; use maintenance or higher
-    dailyCalories = maintenance;
+    dailyCaloriesFloat = maintenance;
     notes.push("Pregnancy detected: no calorie deficit applied; using maintenance.");
   }
 
@@ -133,55 +133,81 @@ export function computeProfileTargets(inputs) {
     proteinFactor += 0.1;
   }
 
-  // Compute protein grams and calories
-  let proteinGrams = weightKg ? weightKg * proteinFactor : null;
-  let proteinCalories = proteinGrams ? proteinGrams * 4 : null;
+  // Compute protein grams and calories (float precision)
+  let proteinGramsFloat = weightKg ? weightKg * proteinFactor : null;
+  let proteinCaloriesFloat = proteinGramsFloat ? proteinGramsFloat * 4 : null;
 
-  // Fat minimum grams (mandatory)
-  const fatMinFactor = 0.6; // g/kg
-  let fatGrams = weightKg ? weightKg * fatMinFactor : null;
-  let fatCalories = fatGrams ? fatGrams * 9 : null;
+  // Fat target logic — percentage-of-calories with g/kg clamps
+  // Default fat% mapping (sensible defaults)
+  let fatPercent = 0.30; // default 30% of calories
+  if (goal === "weight_loss") fatPercent = 0.28; // slightly lower to prioritize protein
+  if (goal === "muscle_gain" || goal === "gain") fatPercent = 0.26; // slightly lower to allow carbs for training
+  // activity influence: high activity -> slight reduction to favor carbs for fuel
+  if (activityLevel === "active" || activityLevel === "very_active") {
+    fatPercent = Math.max(0.22, fatPercent - 0.02);
+  }
 
-  // If dailyCalories is null, we cannot proceed; return partial
-  if (!dailyCalories) {
+  // Fat minimum / maximum factors (g/kg) for clamps
+  const fatMinFactor = 0.6; // g/kg (absolute minimum)
+  const fatMaxFactor = 1.2; // g/kg (practical upper clamp)
+
+  // Compute fat float target based on percent
+  let fatGramsTargetFloat = null;
+  let fatCaloriesFloat = null;
+  if (weightKg && dailyCaloriesFloat) {
+    const fatCaloriesTargetFloat = dailyCaloriesFloat * fatPercent;
+    fatGramsTargetFloat = fatCaloriesTargetFloat / 9;
+    // Clamp to min/max g/kg
+    const minFatGrams = weightKg * fatMinFactor;
+    const maxFatGrams = weightKg * fatMaxFactor;
+    if (fatGramsTargetFloat < minFatGrams) fatGramsTargetFloat = minFatGrams;
+    if (fatGramsTargetFloat > maxFatGrams) fatGramsTargetFloat = maxFatGrams;
+    fatCaloriesFloat = fatGramsTargetFloat * 9;
+  }
+
+  // If dailyCalories is null, we cannot proceed; return partial as before
+  if (!dailyCaloriesFloat) {
     return {
       bmi: bmiRounded,
       bmr: bmrRounded,
       activityMultiplier: multiplier,
       maintenanceCalories: maintenance ? round(maintenance) : null,
       dailyCalorieTarget: null,
-      dailyProteinTarget: proteinGrams ? round(proteinGrams) : null,
-      dailyFatTarget: fatGrams ? round(fatGrams) : null,
+      dailyProteinTarget: proteinGramsFloat ? round(proteinGramsFloat) : null,
+      dailyFatTarget: fatGramsTargetFloat ? round(fatGramsTargetFloat) : null,
       dailyCarbsTarget: null,
       dailySugarLimit: null,
       dailySugarUpper: null,
+      // fiber target unknown because dailyCalories is null
+      dailyFiberTarget: null,
       notes,
       nutritionEngineVersion: NUTRITION_ENGINE_VERSION,
       computedAt: now,
     };
   }
 
-  // Round dailyCalories for calculations
-  dailyCalories = Math.round(dailyCalories);
-
   // Guardrail: ensure proteinCalories + fatCalories <= dailyCalories
   // If not, reduce proteinFactor stepwise by 0.1 down to a lower bound (1.2)
   const minProteinFactor = 1.2;
   let adjustedProteinFactor = proteinFactor;
-  proteinGrams = weightKg ? weightKg * adjustedProteinFactor : null;
-  proteinCalories = proteinGrams ? proteinGrams * 4 : null;
-  fatGrams = weightKg ? weightKg * fatMinFactor : null;
-  fatCalories = fatGrams ? fatGrams * 9 : null;
 
-  if (proteinCalories + fatCalories > dailyCalories) {
-    notes.push("Protein + minimum fat exceed calorie target; attempting safe adjustments.");
+  // Recompute floats based on adjustedProteinFactor and clamped fat
+  proteinGramsFloat = weightKg ? weightKg * adjustedProteinFactor : null;
+  proteinCaloriesFloat = proteinGramsFloat ? proteinGramsFloat * 4 : null;
+  // fatGramsTargetFloat and fatCaloriesFloat are already computed above
+
+  // Use rounded daily calories for comparison to floor logic (we keep dailyCaloriesFloat as float for internal math)
+  const dailyCaloriesRoundedForChecks = Math.round(dailyCaloriesFloat);
+
+  if ((proteinCaloriesFloat || 0) + (fatCaloriesFloat || 0) > dailyCaloriesRoundedForChecks) {
+    notes.push("Protein + fat target exceed calorie target; attempting safe adjustments.");
     // Try reducing proteinFactor
     let reduced = false;
     while (adjustedProteinFactor > minProteinFactor) {
       adjustedProteinFactor = Number((adjustedProteinFactor - 0.1).toFixed(2));
-      proteinGrams = weightKg ? weightKg * adjustedProteinFactor : null;
-      proteinCalories = proteinGrams ? proteinGrams * 4 : null;
-      if (proteinCalories + fatCalories <= dailyCalories) {
+      proteinGramsFloat = weightKg ? weightKg * adjustedProteinFactor : null;
+      proteinCaloriesFloat = proteinGramsFloat ? proteinGramsFloat * 4 : null;
+      if ((proteinCaloriesFloat || 0) + (fatCaloriesFloat || 0) <= dailyCaloriesRoundedForChecks) {
         reduced = true;
         notes.push(`Protein factor reduced to ${adjustedProteinFactor.toFixed(2)} g/kg to fit calories.`);
         break;
@@ -189,35 +215,49 @@ export function computeProfileTargets(inputs) {
     }
 
     // If still infeasible, enforce calorie floor (gender or maintenance if pregnancy)
-    if (!reduced && proteinCalories + fatCalories > dailyCalories) {
+    if (!reduced && (proteinCaloriesFloat || 0) + (fatCaloriesFloat || 0) > dailyCaloriesRoundedForChecks) {
       const enforced = pregnancy ? Math.round(maintenance) : floor;
-      if (enforced > dailyCalories) {
+      if (enforced > dailyCaloriesRoundedForChecks) {
         notes.push(
           `Calorie target raised to safety floor (${enforced} kcal) because protein + fat could not fit.`
         );
-        dailyCalories = enforced;
+        // Increase dailyCaloriesFloat to enforced to make room
+        dailyCaloriesFloat = enforced;
+        // Recompute fat target based on the new dailyCaloriesFloat (respecting clamps)
+        const fatCaloriesTargetFloat = dailyCaloriesFloat * fatPercent;
+        fatGramsTargetFloat = fatCaloriesTargetFloat / 9;
+        const minFatGrams = weightKg * fatMinFactor;
+        const maxFatGrams = weightKg * fatMaxFactor;
+        if (fatGramsTargetFloat < minFatGrams) fatGramsTargetFloat = minFatGrams;
+        if (fatGramsTargetFloat > maxFatGrams) fatGramsTargetFloat = maxFatGrams;
+        fatCaloriesFloat = fatGramsTargetFloat * 9;
+        // Recompute protein (with adjustedProteinFactor)
+        proteinGramsFloat = weightKg ? weightKg * adjustedProteinFactor : null;
+        proteinCaloriesFloat = proteinGramsFloat ? proteinGramsFloat * 4 : null;
       } else {
         notes.push("Unable to fit protein + fat within calorie target; carbs set to zero.");
+        // leave dailyCaloriesFloat unchanged here; carbs computation will clamp to zero later
       }
-      // Recompute with adjustedProteinFactor (may still be original)
-      proteinGrams = weightKg ? weightKg * adjustedProteinFactor : null;
-      proteinCalories = proteinGrams ? proteinGrams * 4 : null;
+      // Recompute protein/fat floats if needed (done above)
     }
   }
 
-  // Final protein/fat numbers (rounded)
-  const finalProteinGrams = proteinGrams ? round(proteinGrams) : null;
-  const finalProteinCalories = proteinCalories ? round(proteinCalories) : null;
-  const finalFatGrams = fatGrams ? round(fatGrams) : null;
-  const finalFatCalories = fatCalories ? round(fatCalories) : null;
+  // Final protein/fat numbers (round grams for user-friendly labels)
+  const finalProteinGrams = proteinGramsFloat ? round(proteinGramsFloat) : null;
+  const finalProteinCalories = finalProteinGrams !== null ? finalProteinGrams * 4 : null;
+  const finalFatGrams = fatGramsTargetFloat ? round(fatGramsTargetFloat) : null;
+  const finalFatCalories = finalFatGrams !== null ? finalFatGrams * 9 : null;
 
-  // Carbs remainder
-  let carbCalories = dailyCalories - (finalProteinCalories || 0) - (finalFatCalories || 0);
+  // Ensure dailyCalories is integer for final targets
+  let finalDailyCalories = Math.round(dailyCaloriesFloat);
+
+  // Carbs remainder using rounded protein/fat calories (consistent for labelable grams)
+  let carbCalories = finalDailyCalories - (finalProteinCalories || 0) - (finalFatCalories || 0);
   if (carbCalories < 0) {
     notes.push("Carb calories negative after protein+fat; set to 0.");
     carbCalories = 0;
   }
-  const carbGrams = round(carbCalories / 4);
+  let carbGrams = round(carbCalories / 4);
 
   // Sugar limits
   let sugarLimitPercent = 0.05;
@@ -227,20 +267,27 @@ export function computeProfileTargets(inputs) {
     sugarUpperPercent = 0.05;
     notes.push("Diabetes flag: sugar limits tightened.");
   }
-  const dailySugarLimit = round((dailyCalories * sugarLimitPercent) / 4);
-  const dailySugarUpper = round((dailyCalories * sugarUpperPercent) / 4);
+  const dailySugarLimit = round((finalDailyCalories * sugarLimitPercent) / 4);
+  const dailySugarUpper = round((finalDailyCalories * sugarUpperPercent) / 4);
+
+  // --- Fiber target
+  // Use common guideline: 14 g fiber per 1000 kcal (rounded)
+  const dailyFiberTarget = round((finalDailyCalories / 1000) * 14);
 
   // Safety floor enforcement (gender)
   if (!pregnancy && gender) {
     const genderFloor = gender === "male" ? 1500 : 1200;
-    if (dailyCalories < genderFloor) {
+    if (finalDailyCalories < genderFloor) {
       notes.push(`Calorie floor applied for ${gender}: ${genderFloor} kcal.`);
-      dailyCalories = genderFloor;
-      // Recompute carbs after floor
-      const recalCarbCalories = dailyCalories - (finalProteinCalories || 0) - (finalFatCalories || 0);
+      finalDailyCalories = genderFloor;
+      // Recompute carbs after floor using finalProteinCalories and finalFatCalories
+      let recalCarbCalories = finalDailyCalories - (finalProteinCalories || 0) - (finalFatCalories || 0);
       if (recalCarbCalories < 0) {
         notes.push("Even after floor, protein+fat exceed calories; carbs set to 0.");
+        recalCarbCalories = 0;
       }
+      carbCalories = recalCarbCalories;
+      carbGrams = round(carbCalories / 4);
     }
   }
 
@@ -250,7 +297,7 @@ export function computeProfileTargets(inputs) {
     bmr: bmrRounded,
     activityMultiplier: multiplier,
     maintenanceCalories: maintenance ? round(maintenance) : null,
-    dailyCalorieTarget: round(dailyCalories),
+    dailyCalorieTarget: round(finalDailyCalories),
     dailyProteinTarget: finalProteinGrams,
     dailyProteinCalories: finalProteinCalories,
     dailyFatTarget: finalFatGrams,
@@ -259,6 +306,8 @@ export function computeProfileTargets(inputs) {
     dailyCarbsCalories: carbCalories,
     dailySugarLimit,
     dailySugarUpper,
+    // fiber target included
+    dailyFiberTarget,
     notes,
     nutritionEngineVersion: NUTRITION_ENGINE_VERSION,
     computedAt: now,
@@ -270,6 +319,8 @@ export function computeProfileTargets(inputs) {
       activityLevel,
       diabetes,
       pregnancy,
+      // expose fiber rule used
+      fiberRule: "14g per 1000 kcal"
     },
   };
 
