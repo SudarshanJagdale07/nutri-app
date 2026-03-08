@@ -48,6 +48,9 @@ const Dashboard = () => {
 
   const [analyzingImage, setAnalyzingImage] = useState(false);
 
+  // Notification testing state
+  const [testNotification, setTestNotification] = useState(null);
+
   // Redirect if not signed in
   useEffect(() => {
     if (!user) {
@@ -135,6 +138,36 @@ const Dashboard = () => {
     }, 1200);
   };
 
+  /* ---------- Test Notification (frontend only) ---------- */
+  const fetchTestNotification = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const types = ["meal", "water", "protein", "calorieSurplus", "sleep", "fiber"];
+      const randomType = types[Math.floor(Math.random() * types.length)];
+
+      const res = await fetch(`http://localhost:5000/notifications/test?type=${randomType}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestNotification(data.data);
+        // Also show a toast so it's visible even without the card
+        toast(
+          (t) => (
+            <div>
+              <b>{data.data.title}</b> {data.data.emoji}
+              <p className="text-sm mt-1">{data.data.body}</p>
+            </div>
+          ),
+          { duration: 5000 }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to fetch notification", err);
+      toast.error("Failed to fetch test notification");
+    }
+  };
+
   /* ---------- Greeting logic ---------- */
   const hour = new Date().getHours();
   const isMorning = hour < 12;
@@ -211,22 +244,20 @@ const Dashboard = () => {
               <button
                 onClick={() => setActiveTab("image")}
                 id="tab-image"
-                className={`px-8 py-3 rounded-xl font-medium transition-all duration-300 ${
-                  activeTab === "image"
-                    ? "bg-white text-green-700 shadow-md"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
+                className={`px-8 py-3 rounded-xl font-medium transition-all duration-300 ${activeTab === "image"
+                  ? "bg-white text-green-700 shadow-md"
+                  : "text-gray-600 hover:text-gray-900"
+                  }`}
               >
                 <i className="fas fa-camera mr-2" /> Image Scan
               </button>
               <button
                 onClick={() => setActiveTab("text")}
                 id="tab-text"
-                className={`px-8 py-3 rounded-xl font-medium transition-all duration-300 ${
-                  activeTab === "text"
-                    ? "bg-white text-green-700 shadow-md"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
+                className={`px-8 py-3 rounded-xl font-medium transition-all duration-300 ${activeTab === "text"
+                  ? "bg-white text-green-700 shadow-md"
+                  : "text-gray-600 hover:text-gray-900"
+                  }`}
               >
                 <i className="fas fa-keyboard mr-2" /> Text Input
               </button>
@@ -258,7 +289,7 @@ const Dashboard = () => {
                 addToLogServer={addToLogServer}
                 fetchFoodDoc={fetchFoodDoc}
                 applyIncrement={applyIncrement}
-                refreshDailyTotals={() => {refresh()}}
+                refreshDailyTotals={() => { refresh() }}
                 formatNumberSmart={formatNumberSmart}
               />
             )}
@@ -269,9 +300,30 @@ const Dashboard = () => {
         <div className="bg-white/70 backdrop-blur-xl rounded-[3rem] p-10 shadow-lg mb-16 transition transform hover:scale-[1.02] hover:shadow-xl">
           <h2 className="text-2xl font-serif font-bold mb-4">Weekly Insight</h2>
           <p className="text-gray-600 mb-6">Your sugar intake increased by 20% this week.</p>
-          <button onClick={() => navigate("/assistant")} className="text-[#00A676] font-bold hover:underline">
-            Get suggestions →
-          </button>
+          <div className="flex gap-4">
+            <button onClick={() => navigate("/assistant")} className="text-[#00A676] font-bold hover:underline">
+              Get suggestions →
+            </button>
+            <button
+              onClick={fetchTestNotification}
+              className="ml-auto bg-purple-100 text-purple-700 px-4 py-2 rounded-xl font-bold hover:bg-purple-200 transition-colors flex items-center gap-2"
+            >
+              <i className="fas fa-bell"></i> Test Notification
+            </button>
+          </div>
+
+          {/* Display Test Notification Result */}
+          {testNotification && (
+            <div className="mt-6 p-6 bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl border border-purple-100 animate-fade-in relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 text-8xl opacity-10">{testNotification.emoji}</div>
+              <div className="relative z-10">
+                <h3 className="text-xl font-black text-purple-800 mb-2 flex items-center gap-2">
+                  {testNotification.title} {testNotification.emoji}
+                </h3>
+                <p className="text-gray-800 font-medium">{testNotification.body}</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {isEvening && (
@@ -386,11 +438,11 @@ const ProgressRing = ({ title, consumed, goal, percent, remaining, unit, hasGoal
 
 /* ---------- MacroBox ---------- */
 const MacroBox = ({ label, val, icon, color }) => (
-  <div className={`${color} p-4 rounded-[1.5rem] border border-black/5 text-center transition-all hover:scale-105`}> 
+  <div className={`${color} p-4 rounded-[1.5rem] border border-black/5 text-center transition-all hover:scale-105`}>
     <span className="text-2xl block mb-1">{icon}</span>
     <span className="text-sm text-gray-500">{label}</span>
     <span className="font-bold text-lg block">{val}</span>
   </div>
-);  
+);
 
 export default Dashboard;

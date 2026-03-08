@@ -6,7 +6,7 @@ const client = new MongoClient("mongodb://localhost:27017");
 async function run() {
   await client.connect();
   const db = client.db("nutrition_ai_projectDB");
-  const collection = db.collection("demo_DB");
+  const collection = db.collection("food_nutrition_DB");
 
   // Update all documents: split searchTerms into arrays
   const cursor = collection.find({});
