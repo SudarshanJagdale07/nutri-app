@@ -1,78 +1,127 @@
 // frontend/src/pages/Assistant.jsx
 import React, { useState, useRef, useEffect } from "react";
+import useUserStore from "../store/user";
+import { getDailyNutrition } from "../apiManager/foodApi";
+import { postChatMessage } from "../apiManager/chatApi";
+import { fetchProfile } from "../apiManager/profileApi";
+import useHistoryData from "../hooks/useHistoryData";
+import toast from "react-hot-toast";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 function Assistant() {
+  const { user, updateProfile } = useUserStore();
   const [messages, setMessages] = useState([
     {
       role: "assistant",
-      content:
-        "Hi. I’ve reviewed today’s intake. You’re slightly low on protein. Would you like dinner suggestions?",
+      content: "Hello! I'm Nutri-Bot. I've analyzed your current intake and goals. How can I help you today?",
     },
   ]);
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showWhy, setShowWhy] = useState(false);
+  const [nutrition, setNutrition] = useState(null);
 
-  const chatEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
 
-  // Mock user context (replace later with real data)
-  const userContext = {
-    goal: "Muscle Gain",
-    diet: "Vegetarian",
-    todayCalories: 1420,
-    calorieGoal: 2200,
-    protein: 52,
-    proteinGoal: 110,
-  };
+  // ✅ History data for LLM context
+  const { weekData } = useHistoryData(user?._id);
+
+  // Fetch current context on mount
+  useEffect(() => {
+    async function loadData() {
+      if (!user?._id) return;
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        // Fetch Daily Nutrition and Profile in parallel
+        const [nutriRes, profileRes] = await Promise.all([
+          getDailyNutrition(user._id, today),
+          fetchProfile(user._id)
+        ]);
+
+        if (nutriRes?.daily) {
+          setNutrition(nutriRes.daily);
+        }
+        if (profileRes?.data) {
+          updateProfile(profileRes.data); // ✅ Sync store with latest profile from DB
+        }
+      } catch (err) {
+        console.error("Failed to load context data:", err);
+      }
+    }
+    loadData();
+  }, [user?._id]); // Only re-run if userId changes
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages, loading]);
 
-  const simulateAIResponse = (userMessage) => {
+  const handleSend = async (customMessage) => {
+    const textToSend = typeof customMessage === "string" ? customMessage : input;
+    if (!textToSend.trim()) return;
+
+    const userMessage = { role: "user", content: textToSend };
+    setMessages((prev) => [...prev, userMessage]);
+    
+    if (typeof customMessage !== "string") setInput("");
+    
     setLoading(true);
-
-    setTimeout(() => {
+    try {
+      const res = await postChatMessage(textToSend);
+      if (res?.reply) {
+        setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
+      }
+    } catch (err) {
+      toast.error("Assistant is having trouble connecting.");
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content:
-            "For dinner, you could have paneer bhurji with 2 rotis and a bowl of curd. This would add ~35g protein and help close your gap.",
-        },
+        { role: "assistant", content: "I'm sorry, I'm having trouble connecting to my brain right now. Please try again later." },
       ]);
+    } finally {
       setLoading(false);
-    }, 1200);
-  };
-
-  const handleSend = () => {
-    if (!input.trim()) return;
-
-    const userMessage = {
-      role: "user",
-      content: input,
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    simulateAIResponse(input);
+    }
   };
 
   const quickPrompts = [
-    "Suggest a high-protein veg dinner",
-    "How can I meet today’s protein goal?",
-    "Why is my sugar intake high this week?",
+    "How much more protein do I need?",
+    "Suggest a high-protein dinner",
+    "How was my intake yesterday?",
+    "Why is my sugar intake high?",
   ];
+
+  // Derived context for the panel
+  const profile = user?.profile || {};
+  const currentStats = {
+    goal: profile.goal || "Not set",
+    diet: profile.dietPreference || "Not set",
+    todayCalories: nutrition?.completedCalories || 0,
+    calorieGoal: profile.dailyCalorieTarget || 0,
+    protein: nutrition?.completedProtein || 0,
+    proteinGoal: profile.dailyProteinTarget || 0,
+    carbs: nutrition?.completedCarbs || 0,
+    carbsGoal: profile.dailyCarbsTarget || 0,
+    fats: nutrition?.completedFats || 0,
+    fatsGoal: profile.dailyFatTarget || 0,
+  };
+
+  // Helper to format goal
+  const formatGoal = (goal) => {
+    if (!goal || goal === "Not set") return "Not set";
+    return goal
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
 
   return (
     <div className="min-h-screen bg-[#F2F6F2] text-[#1A202C] relative overflow-hidden pb-24 font-sans">
-      {/* Background blur accents */}
       <div className="absolute -top-32 -right-32 w-[600px] h-[600px] bg-[#00A676] opacity-10 blur-[140px] rounded-full" />
       <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] bg-[#D9E6DC] opacity-40 blur-[120px] rounded-full" />
 
       <div className="max-w-6xl mx-auto pt-80 pb-16 px-6 md:px-10 relative z-10">
-        {/* HEADER */}
         <div className="max-w-6xl mb-10">
           <h1 className="text-5xl font-serif font-bold">AI Assistant</h1>
           <p className="text-gray-500 mt-3 text-lg">
@@ -80,36 +129,37 @@ function Assistant() {
           </p>
         </div>
 
-        {/* LAYOUT */}
         <div className="grid md:grid-cols-3 gap-8 max-w-6xl">
-          {/* CHAT AREA */}
           <div className="md:col-span-2 bg-white/70 backdrop-blur-xl rounded-[2.5rem] p-8 shadow-lg flex flex-col h-[600px]">
-            {/* MESSAGES */}
-            <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+            <div 
+              ref={chatContainerRef}
+              className="flex-1 overflow-y-auto space-y-6 pr-2"
+            >
               {messages.map((msg, index) => (
                 <div
                   key={index}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[75%] px-6 py-4 rounded-[1.8rem] ${
-                      msg.role === "user" ? "bg-[#00A676] text-white" : "bg-white shadow-sm"
+                    className={`max-w-[85%] px-6 py-4 rounded-[1.8rem] ${
+                      msg.role === "user"
+                        ? "bg-[#00A676] text-white whitespace-pre-wrap"
+                        : "bg-white shadow-sm text-gray-800"
                     }`}
                   >
                     {msg.content}
 
-                    {/* Explainability toggle for assistant */}
-                    {msg.role === "assistant" && index === messages.length - 1 && (
-                      <div className="mt-3 text-sm text-gray-500">
-                        <button onClick={() => setShowWhy(!showWhy)} className="underline">
+                    {msg.role === "assistant" && index === messages.length - 1 && index > 0 && (
+                      <div className="mt-3 text-sm text-gray-500 border-t pt-2">
+                        <button onClick={() => setShowWhy(!showWhy)} className="underline hover:text-[#00A676]">
                           Why this suggestion?
                         </button>
 
                         {showWhy && (
-                          <div className="mt-2 text-xs text-gray-400">
-                            You are currently 58g short of your daily protein goal.
-                            Paneer and curd are vegetarian protein sources that
-                            increase intake without excessive calories.
+                          <div className="mt-2 text-xs text-gray-400 italic">
+                            This advice is generated based on your goal: {formatGoal(currentStats.goal)}, 
+                            current protein gap: {Math.max(0, currentStats.proteinGoal - currentStats.protein)}g,
+                            and historical trends.
                           </div>
                         )}
                       </div>
@@ -117,38 +167,35 @@ function Assistant() {
                   </div>
                 </div>
               ))}
-
-              {loading && <div className="text-gray-400 text-sm">Assistant is thinking...</div>}
-
-              <div ref={chatEndRef}></div>
+              {loading && <div className="text-[#00A676] text-sm animate-pulse ml-4">Nutri-Bot is typing...</div>}
             </div>
 
-            {/* INPUT */}
-            <div className="mt-6 flex gap-4">
+            <form 
+              onSubmit={(e) => { e.preventDefault(); handleSend(); }}
+              className="mt-6 flex gap-4"
+            >
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask about your nutrition..."
-                className="flex-1 px-6 py-3 rounded-full border border-gray-200 focus:outline-none focus:ring-4 focus:ring-[#00A676]/10"
+                className="flex-1 px-6 py-4 rounded-full border border-gray-200 focus:outline-none focus:ring-4 focus:ring-[#00A676]/10 focus:border-[#00A676] transition"
               />
               <button
-                onClick={handleSend}
-                className="bg-[#00A676] text-white px-6 py-3 rounded-full font-bold hover:scale-105 transition"
+                type="submit"
+                disabled={loading}
+                className="bg-[#00A676] text-white px-8 py-4 rounded-full font-bold hover:scale-105 transition shadow-md active:scale-95 disabled:opacity-50"
               >
                 Send
               </button>
-            </div>
+            </form>
 
-            {/* QUICK PROMPTS */}
             <div className="mt-6 flex flex-wrap gap-3">
               {quickPrompts.map((prompt, i) => (
                 <button
                   key={i}
-                  onClick={() => {
-                    setInput(prompt);
-                  }}
-                  className="text-sm bg-white shadow-sm px-4 py-2 rounded-full hover:shadow-md transition"
+                  onClick={() => handleSend(prompt)}
+                  className="text-xs bg-white shadow-sm border border-gray-100 px-4 py-2 rounded-full hover:shadow-md hover:border-[#00A676]/30 transition text-gray-600"
                 >
                   {prompt}
                 </button>
@@ -156,30 +203,86 @@ function Assistant() {
             </div>
           </div>
 
-          {/* CONTEXT PANEL */}
-          <div className="bg-white/60 backdrop-blur-xl rounded-[2.5rem] p-8 shadow-md transition transform hover:scale-[1.02] hover:shadow-xl">
-            <h3 className="text-xl font-bold mb-6">Your Context</h3>
+          <div className="bg-white/60 backdrop-blur-xl rounded-[2.5rem] p-8 shadow-md border border-white/40 h-fit">
+            <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-[#00A676] rounded-full"></span>
+              Your Context
+            </h3>
 
-            <div className="space-y-4 text-sm text-gray-600">
-              <div>
-                <strong>Goal:</strong> {userContext.goal}
+            <div className="space-y-6 text-sm">
+              <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+                <span className="text-gray-500">Goal</span>
+                <span className="font-bold text-[#00A676]">{formatGoal(currentStats.goal)}</span>
               </div>
 
-              <div>
-                <strong>Diet:</strong> {userContext.diet}
+              <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+                <span className="text-gray-500">Diet</span>
+                <span className="font-bold">{currentStats.diet}</span>
               </div>
 
-              <div>
-                <strong>Calories:</strong> {userContext.todayCalories} / {userContext.calorieGoal}
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Calories</span>
+                  <span className="font-medium">
+                    {Number(currentStats.todayCalories).toFixed(2)} / {currentStats.calorieGoal} kcal
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-[#00A676] h-full transition-all duration-500" 
+                    style={{ width: `${currentStats.calorieGoal > 0 ? Math.min(100, (currentStats.todayCalories / currentStats.calorieGoal) * 100) : 0}%` }}
+                  />
+                </div>
               </div>
 
-              <div>
-                <strong>Protein:</strong> {userContext.protein}g / {userContext.proteinGoal}g
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Protein</span>
+                  <span className="font-medium">
+                    {Number(currentStats.protein).toFixed(2)}g / {currentStats.proteinGoal}g
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-blue-400 h-full transition-all duration-500" 
+                    style={{ width: `${currentStats.proteinGoal > 0 ? Math.min(100, (currentStats.protein / currentStats.proteinGoal) * 100) : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Carbohydrates</span>
+                  <span className="font-medium">
+                    {Number(currentStats.carbs).toFixed(2)}g / {currentStats.carbsGoal}g
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-orange-400 h-full transition-all duration-500" 
+                    style={{ width: `${currentStats.carbsGoal > 0 ? Math.min(100, (currentStats.carbs / currentStats.carbsGoal) * 100) : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Fats</span>
+                  <span className="font-medium">
+                    {Number(currentStats.fats).toFixed(2)}g / {currentStats.fatsGoal}g
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className="bg-red-400 h-full transition-all duration-500" 
+                    style={{ width: `${currentStats.fatsGoal > 0 ? Math.min(100, (currentStats.fats / currentStats.fatsGoal) * 100) : 0}%` }}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="mt-8 text-xs text-gray-400">
-              Suggestions are generated based on your logged meals and goals. This is not medical advice.
+            <div className="mt-10 p-4 bg-[#F2F6F2] rounded-2xl text-[10px] text-gray-400 leading-relaxed italic">
+              "Suggestions are generated based on your logged meals and goals. This is not medical advice. Use for informational purposes only."
             </div>
           </div>
         </div>

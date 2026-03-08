@@ -796,7 +796,7 @@ export async function postAddToDaily(req, res) {
     if (cals !== 0) inc.completedCalories = cals;
     if (prot !== 0) inc.completedProtein = prot;
     if (carbs !== 0) inc.completedCarbs = carbs;
-    if (fats !== 0) inc.completedFats = fats;
+    if (fats !== 0) inc.completedFat = fats;
     if (fiber !== 0) inc.completedFiber = fiber;
     if (sugar !== 0) inc.completedSugar = sugar;
 
@@ -1189,7 +1189,7 @@ Input: """${text}"""
           completedCalories: Number.isFinite(meal.totalCalories) ? meal.totalCalories : 0,
           completedProtein: Number.isFinite(meal.totalProtein) ? meal.totalProtein : 0,
           completedCarbs: Number.isFinite(meal.totalCarbs) ? meal.totalCarbs : 0,
-          completedFats: Number.isFinite(meal.totalFats) ? meal.totalFats : 0,
+          completedFat: Number.isFinite(meal.totalFats) ? meal.totalFats : 0,
           completedFiber: Number.isFinite(meal.totalFiber) ? meal.totalFiber : 0,
           completedSugar: Number.isFinite(meal.totalSugar) ? meal.totalSugar : 0
         };

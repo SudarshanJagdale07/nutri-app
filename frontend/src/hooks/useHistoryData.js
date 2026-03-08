@@ -21,6 +21,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { getWeekDatesMondayToSunday, getLastNDates, getLocalDateString } from "../utils/weekUtils";
 
+
+
 // Use the same API base as the rest of the frontend
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
