@@ -9,6 +9,7 @@ import nutritionRoutes from "./routes/nutritionRoutes.js";
 // at top with other imports
 import foodImageRoutes from "./routes/foodImageRoutes.js";
 import predictiveRoutes from "./routes/predictiveRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -24,6 +25,8 @@ app.use("/api", nutritionRoutes);
 app.use("/api/predictive", predictiveRoutes);
 // after existing app.use("/food", foodRoutes);
 app.use("/food-image", foodImageRoutes);
+app.use("/api/chat", chatRoutes);
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

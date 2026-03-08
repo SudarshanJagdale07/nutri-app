@@ -492,6 +492,7 @@ async function findNutritionDocByName(name, preparationHint = null) {
     console.warn("Exact match query failed:", e?.message || e);
   }
 
+  
   const syns = SYNONYMS[normalizedName];
   if (Array.isArray(syns) && syns.length > 0) {
     try {
@@ -588,6 +589,48 @@ async function findNutritionDocByName(name, preparationHint = null) {
   }
 
   return { doc: null, candidates: [], reason: "none" };
+}
+
+// ---------------------------
+// Helper: estimate nutrition using Gemini for unknown foods
+// ---------------------------
+async function estimateNutritionWithGemini(foodName, quantity, unit) {
+  if (!model) return null;
+  
+  try {
+    const prompt = `Estimate nutrition for: ${quantity} ${unit} of ${foodName}
+
+Return ONLY valid JSON:
+{
+  "calories": number,
+  "protein": number,
+  "carbs": number,
+  "fat": number,
+  "fiber": number,
+  "sugar": number,
+  "grams": number
+}
+
+All values in the specified quantity. No explanation.`;
+
+    const response = await model.generateContent(prompt);
+    const text = response?.response?.text?.() || "";
+    const cleaned = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/i, "$1").trim();
+    const data = JSON.parse(cleaned);
+    
+    return {
+      calories: Number(data.calories) || 0,
+      protein: Number(data.protein) || 0,
+      carbs: Number(data.carbs) || 0,
+      fats: Number(data.fat) || 0,
+      fiber: Number(data.fiber) || 0,
+      sugar: Number(data.sugar) || 0,
+      grams: Number(data.grams) || (quantity * (UNIT_GRAMS_MAP[unit] || 100))
+    };
+  } catch (err) {
+    console.error("Gemini nutrition estimation failed:", err);
+    return null;
+  }
 }
 
 // ---------------------------
@@ -968,25 +1011,48 @@ Input: """${text}"""
         responseCandidates.push({ input: item.name, itemIndex, candidates, reason, preferPrep });
       }
 
-      if (!foodDoc) {
-        mealItems.push({
-          userInputName: item.name,
-          dishName: item.name,
-          foodId: null,
-          quantity: item.quantity,
-          unit: item.unit,
-          grams: null,
-          calories: null,
-          protein: null,
-          carbs: null,
-          fats: null,
-          fiber: null,
-          sugar: null,
-          isEstimated: true,
-          preparation: preferPrep
-        });
-        continue;
-      }
+ if (!foodDoc) {
+  // Try to estimate with Gemini
+  const estimated = await estimateNutritionWithGemini(item.name, item.quantity, item.unit);
+  
+  if (estimated) {
+    mealItems.push({
+      userInputName: item.name,
+      dishName: item.name,
+      foodId: null,
+      quantity: item.quantity,
+      unit: item.unit,
+      grams: estimated.grams,
+      calories: estimated.calories,
+      protein: estimated.protein,
+      carbs: estimated.carbs,
+      fats: estimated.fats,
+      fiber: estimated.fiber,
+      sugar: estimated.sugar,
+      isEstimated: true,
+      preparation: preferPrep
+    });
+  } else {
+    mealItems.push({
+      userInputName: item.name,
+      dishName: item.name,
+      foodId: null,
+      quantity: item.quantity,
+      unit: item.unit,
+      grams: null,
+      calories: null,
+      protein: null,
+      carbs: null,
+      fats: null,
+      fiber: null,
+      sugar: null,
+      isEstimated: true,
+      preparation: preferPrep
+    });
+  }
+  continue;
+}
+
 
       if (Array.isArray(related) && related.length > 0) {
         const baseName = (foodDoc.displayName || "").trim().toLowerCase();
