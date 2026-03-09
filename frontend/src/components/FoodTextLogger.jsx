@@ -217,7 +217,7 @@ export default function FoodTextLogger({
         completedCalories: Number(totals.calories || 0),
         completedProtein: Number(totals.protein || 0),
         completedCarbs: Number(totals.carbs || 0),
-        completedFat: Number(totals.fats || 0),
+        completedFats: Number(totals.fats || 0),
         completedFiber: Number(totals.fiber || 0),
         completedSugar: Number(totals.sugar || 0)
       };
@@ -246,7 +246,7 @@ export default function FoodTextLogger({
               completedCalories: Number(totals.calories || 0),
               completedProtein: Number(totals.protein || 0),
               completedCarbs: Number(totals.carbs || 0),
-              completedFat: Number(totals.fats || 0),
+              completedFats: Number(totals.fats || 0),
               completedFiber: Number(totals.fiber || 0),
               completedSugar: Number(totals.sugar || 0)
             });
@@ -259,7 +259,7 @@ export default function FoodTextLogger({
             completedCalories: Number(totals.calories || 0),
             completedProtein: Number(totals.protein || 0),
             completedCarbs: Number(totals.carbs || 0),
-            completedFat: Number(totals.fats || 0),
+            completedFats: Number(totals.fats || 0),
             completedFiber: Number(totals.fiber || 0),
             completedSugar: Number(totals.sugar || 0)
           });

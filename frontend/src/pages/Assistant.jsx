@@ -144,7 +144,7 @@ useEffect(() => {
                         ? "bg-[#00A676] text-white rounded-tr-sm"
                         : "bg-white shadow-sm text-gray-800 rounded-tl-sm"
                     }`}>
-                      {decodeHTML(msg.content)}
+                      {decodeHTML(msg.content).replace(/\*\*/g, '').replace(/\*/g, '')}
 
                     </div>
                   </div>

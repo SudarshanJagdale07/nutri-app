@@ -158,10 +158,11 @@ INSTRUCTIONS:
 - Answer questions about nutrition, meals, and health in a friendly conversational way
 - Give specific suggestions based on their REAL data above
 - Focus on Indian foods when suggesting meals (roti, dal, paneer, rice, sabzi etc.)
-- Keep responses concise (2-4 sentences max unless they ask for detail)
+- Keep responses concise (1-2 sentences max unless they ask for detail)
 - If they ask about last week, refer to the 7 days summary above
 - Do NOT make up data — only use what's provided above
-- Always be encouraging and positive`;
+- Always be encouraging and positive
+- IMPORTANT: Never use asterisks (*) or double asterisks (**) or any markdown formatting. Always respond in plain text only.`;
 
     // Build Gemini model
     const model = genAI.getGenerativeModel({
@@ -182,7 +183,10 @@ INSTRUCTIONS:
 
     // Send message and get response
     const result = await chat.sendMessage(message);
-    const reply = result.response.text();
+    let reply = result.response.text();
+    
+    // Remove all markdown formatting
+    reply = reply.replace(/\*\*/g, '').replace(/\*/g, '');
 
     return res.json({
       reply,
