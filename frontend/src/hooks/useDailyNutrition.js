@@ -10,6 +10,7 @@ import { getDailyNutrition } from "../apiManager/foodApi";
  * This hook accepts both legacy shapes (calories/protein/...) and canonical completed* shapes from the backend,
  * and normalizes them to the canonical completed* shape for consumers.
  */
+
 export function useDailyNutrition(userId) {
   const [loading, setLoading] = useState(false);
   const [totals, setTotals] = useState({
@@ -25,7 +26,7 @@ export function useDailyNutrition(userId) {
     if (!userId) return;
     setLoading(true);
     try {
-      const today = new Date().toISOString().slice(0,10);
+      const today = new Date().toISOString().split("T")[0];
       const resp = await getDailyNutrition(userId, today);
       // Accept multiple shapes
       const daily = resp?.data?.daily ?? resp?.daily ?? resp?.data ?? null;

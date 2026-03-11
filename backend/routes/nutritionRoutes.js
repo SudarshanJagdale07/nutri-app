@@ -1,7 +1,6 @@
 // backend/routes/nutritionRoutes.js
 import express from "express";
-import { logFoodText, getMeals, getDailyNutrition, postAddToDaily, getFood } from "../controllers/nutritionController.js";
-import { listModelsHandler } from "../controllers/geminiDebugController.js";
+import { logFoodText, logImageMeal, getMeals, getDailyNutrition, postAddToDaily, getFood } from "../controllers/nutritionController.js";import { listModelsHandler } from "../controllers/geminiDebugController.js";
 
 const router = express.Router();
 
@@ -20,5 +19,7 @@ router.get("/food/:name", getFood);
 
 // Debug endpoint to list available Gemini models (remove or protect in production)
 router.get("/models", listModelsHandler);
+
+router.post("/log-image-meal", logImageMeal);
 
 export default router;

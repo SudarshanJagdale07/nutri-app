@@ -57,27 +57,6 @@ export function useMealAnalysis() {
       const serverResp = await postLogText(payload);
       const savedMeal = serverResp?.meal ?? serverResp ?? null;
       const savedMealId = savedMeal?._id ?? null;
-      
-      // Also update daily nutrition totals
-      if (savedMealId && totals) {
-        try {
-          const today = new Date().toISOString().slice(0, 10);
-          await postAddToDaily({
-            userId,
-            date: today,
-            totals: {
-              calories: Number(totals.completedCalories || totals.calories || 0),
-              protein: Number(totals.completedProtein || totals.protein || 0),
-              carbs: Number(totals.completedCarbs || totals.carbs || 0),
-              fats: Number(totals.completedFats || totals.fats || 0)
-            },
-            mealId: savedMealId
-          });
-        } catch (dailyErr) {
-          console.warn("Failed to update daily totals:", dailyErr);
-        }
-      }
-      
       return serverResp;
     } catch (err) {
       console.error("addToLog error:", err);

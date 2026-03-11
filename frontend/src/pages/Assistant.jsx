@@ -109,10 +109,10 @@ useEffect(() => {
       <div className="absolute -top-32 -right-32 w-[600px] h-[600px] bg-[#00A676] opacity-10 blur-[140px] rounded-full" />
       <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] bg-[#D9E6DC] opacity-40 blur-[120px] rounded-full" />
 
-      <div className="max-w-6xl mx-auto pt-28 pb-16 px-6 md:px-10 relative z-10">
+      <div className="max-w-6xl mx-auto pt-28 mt-54 pb-16 px-6 md:px-10 relative z-10">
         {/* HEADER */}
         <div className="mb-10">
-          <h1 className="text-5xl font-serif font-bold">AI Assistant</h1>
+          <h1 className="text-4xl font-serif font-bold">AI Assistant</h1>
           <p className="text-gray-500 mt-3 text-lg">
             Personalized suggestions based on your real logged meals.
           </p>
@@ -144,7 +144,7 @@ useEffect(() => {
                         ? "bg-[#00A676] text-white rounded-tr-sm"
                         : "bg-white shadow-sm text-gray-800 rounded-tl-sm"
                     }`}>
-                      {decodeHTML(msg.content).replace(/\*\*/g, '').replace(/\*/g, '')}
+                      {decodeHTML(msg.content)}
 
                     </div>
                   </div>

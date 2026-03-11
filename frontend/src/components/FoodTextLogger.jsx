@@ -155,12 +155,27 @@ export default function FoodTextLogger({
         grams = qty * 100;
       }
 
-      const calories = (grams / 100) * (doc.caloriesPer100g ?? doc.calories_kcal ?? 0);
-      const protein = (grams / 100) * (doc.proteinPer100g ?? doc.protein_g ?? 0);
-      const carbs = (grams / 100) * (doc.carbsPer100g ?? doc.carbs_g ?? 0);
-      const fats = (grams / 100) * (doc.fatPer100g ?? doc.fat_g ?? 0);
-      const fiber = (grams / 100) * (doc.fiberPer100g ?? doc.fiber_g ?? 0);
-      const sugar = (grams / 100) * (doc.sugarPer100g ?? doc.sugar_g ?? 0);
+      const isPiece = unit === "piece" || (doc.perQuantity === 1 && unit === "piece");
+
+      let calories, protein, carbs, fats, fiber, sugar;
+
+      if (isPiece) {
+        // Per-piece: use values directly, multiply by quantity
+        calories = (doc.caloriesPer100g ?? doc.calories_kcal ?? 0) * qty;
+        protein = (doc.proteinPer100g ?? doc.protein_g ?? 0) * qty;
+        carbs = (doc.carbsPer100g ?? doc.carbs_g ?? 0) * qty;
+        fats = (doc.fatPer100g ?? doc.fat_g ?? 0) * qty;
+        fiber = (doc.fiberPer100g ?? doc.fiber_g ?? 0) * qty;
+        sugar = (doc.sugarPer100g ?? doc.sugar_g ?? 0) * qty;
+      } else {
+        // Per-100g: use grams-based calculation
+        calories = (grams / 100) * (doc.caloriesPer100g ?? doc.calories_kcal ?? 0);
+        protein = (grams / 100) * (doc.proteinPer100g ?? doc.protein_g ?? 0);
+        carbs = (grams / 100) * (doc.carbsPer100g ?? doc.carbs_g ?? 0);
+        fats = (grams / 100) * (doc.fatPer100g ?? doc.fat_g ?? 0);
+        fiber = (grams / 100) * (doc.fiberPer100g ?? doc.fiber_g ?? 0);
+        sugar = (grams / 100) * (doc.sugarPer100g ?? doc.sugar_g ?? 0);
+      }
 
       cloned.items[itemIndex] = {
         ...cloned.items[itemIndex],
@@ -217,7 +232,7 @@ export default function FoodTextLogger({
         completedCalories: Number(totals.calories || 0),
         completedProtein: Number(totals.protein || 0),
         completedCarbs: Number(totals.carbs || 0),
-        completedFats: Number(totals.fats || 0),
+        completedFat: Number(totals.fats || 0),
         completedFiber: Number(totals.fiber || 0),
         completedSugar: Number(totals.sugar || 0)
       };
@@ -246,7 +261,7 @@ export default function FoodTextLogger({
               completedCalories: Number(totals.calories || 0),
               completedProtein: Number(totals.protein || 0),
               completedCarbs: Number(totals.carbs || 0),
-              completedFats: Number(totals.fats || 0),
+              completedFat: Number(totals.fats || 0),
               completedFiber: Number(totals.fiber || 0),
               completedSugar: Number(totals.sugar || 0)
             });
@@ -259,7 +274,7 @@ export default function FoodTextLogger({
             completedCalories: Number(totals.calories || 0),
             completedProtein: Number(totals.protein || 0),
             completedCarbs: Number(totals.carbs || 0),
-            completedFats: Number(totals.fats || 0),
+            completedFat: Number(totals.fats || 0),
             completedFiber: Number(totals.fiber || 0),
             completedSugar: Number(totals.sugar || 0)
           });

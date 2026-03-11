@@ -3,6 +3,7 @@ import React, { useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrashAlt, faMagic, faCircleNotch } from '@fortawesome/free-solid-svg-icons';
+import { postImageMeal } from "../apiManager/foodApi";
 
 /**
  * Props:
@@ -39,7 +40,7 @@ export default function FoodImageLogger({
   const [scannerActive, setScannerActive] = useState(false);
 
   // Minimum confidence threshold (0-1). Items or ML results below this will be treated as low-confidence.
-  const MIN_CONFIDENCE = 0.7;
+  const MIN_CONFIDENCE = 0.85;
 
   // Format helper fallback
   const f = (n) => (formatNumberSmart ? formatNumberSmart(n) : (Number.isFinite(Number(n)) ? String(n) : n));
@@ -149,7 +150,6 @@ export default function FoodImageLogger({
 
       // Ensure each item has default fields expected by UI
       normalized.items = normalized.items.map((it) => ({
-        index: typeof it.index === "number" ? it.index : undefined,
         userInputName: it.userInputName ?? it.name ?? it.dishName ?? "",
         dishName: it.dishName ?? it.userInputName ?? "",
         foodId: it.foodId ?? it._id ?? null,
@@ -165,9 +165,29 @@ export default function FoodImageLogger({
         isEstimated: it.isEstimated ?? true,
         preparation: it.preparation ?? null,
         suggestions: it.suggestions ?? [],
-        // preserve any per-item confidence if present
+        mlQuantity: it.mlQuantity ?? null,
         confidence: (typeof it.confidence === "number") ? it.confidence : (typeof it.conf === "number" ? it.conf : null)
       }));
+
+      // Recalculate totals from items
+      let totalCalories = 0, totalProtein = 0, totalCarbs = 0, totalFats = 0, totalFiber = 0, totalSugar = 0;
+      normalized.items.forEach(item => {
+        const qty = Number(item.quantity ?? 1);
+        totalCalories += (Number(item.calories) || 0) * qty;
+        totalProtein += (Number(item.protein) || 0) * qty;
+        totalCarbs += (Number(item.carbs) || 0) * qty;
+        totalFats += (Number(item.fats) || 0) * qty;
+        totalFiber += (Number(item.fiber) || 0) * qty;
+        totalSugar += (Number(item.sugar) || 0) * qty;
+      });
+      normalized.totals = {
+        calories: Math.round(totalCalories * 100) / 100,
+        protein: Math.round(totalProtein * 100) / 100,
+        carbs: Math.round(totalCarbs * 100) / 100,
+        fats: Math.round(totalFats * 100) / 100,
+        fiber: Math.round(totalFiber * 100) / 100,
+        sugar: Math.round(totalSugar * 100) / 100
+      };
 
       // --- Per-item confidence filtering:
       // If items include a confidence field, filter out items below MIN_CONFIDENCE.
@@ -207,8 +227,60 @@ export default function FoodImageLogger({
     }
   };
 
+  /**
+   * changeQty
+   *
+   * - Updates qtyMap and analysis atomically so totals and analysis.items[].quantity
+   *   remain consistent and no stale reads occur.
+   *
+   * Implementation detail:
+   * - We use functional setQtyMap(prev => { ... }) so we can compute newQty from prev reliably.
+   * - Inside that functional update we call setAnalysis(prevAnalysis => { ... }) to update
+   *   analysis using the same newQty and the previous qtyMap values for other items.
+   */
   const changeQty = (idx, delta) => {
-    setQtyMap((prev) => ({ ...prev, [idx]: Math.max(1, (prev[idx] || 1) + delta) }));
+    setQtyMap((prevQtyMap) => {
+      const prevQty = Number(prevQtyMap[idx] || (analysis?.items?.[idx]?.quantity) || 1);
+      const newQty = Math.max(1, prevQty + delta);
+
+      // Update analysis atomically using the same newQty and prevQtyMap for other items
+      setAnalysis((prevAnalysis) => {
+        if (!prevAnalysis) return prevAnalysis;
+        const cloned = JSON.parse(JSON.stringify(prevAnalysis));
+
+        // Update canonical quantity on the item
+        if (cloned.items && cloned.items[idx]) {
+          cloned.items[idx].quantity = newQty;
+        }
+
+        // Recompute totals using newQty for changed index and prevQtyMap for others
+        let totalCals = 0, totalProt = 0, totalCarbs = 0, totalFats = 0, totalFiber = 0, totalSugar = 0;
+        cloned.items.forEach((item, i) => {
+          const itemQty = (i === idx) ? newQty : (Number(prevQtyMap[i]) || Number(item.quantity) || 1);
+          // Use per-item macros as provided (assumed per-unit or normalized earlier)
+          totalCals += (Number(item.calories) || 0) * itemQty;
+          totalProt += (Number(item.protein) || 0) * itemQty;
+          totalCarbs += (Number(item.carbs) || 0) * itemQty;
+          totalFats += (Number(item.fats) || 0) * itemQty;
+          totalFiber += (Number(item.fiber) || 0) * itemQty;
+          totalSugar += (Number(item.sugar) || 0) * itemQty;
+        });
+
+        cloned.totals = {
+          calories: Math.round(totalCals * 100) / 100,
+          protein: Math.round(totalProt * 100) / 100,
+          carbs: Math.round(totalCarbs * 100) / 100,
+          fats: Math.round(totalFats * 100) / 100,
+          fiber: Math.round(totalFiber * 100) / 100,
+          sugar: Math.round(totalSugar * 100) / 100
+        };
+
+        return cloned;
+      });
+
+      // Return updated qtyMap (this will be the new state)
+      return { ...prevQtyMap, [idx]: newQty };
+    });
   };
 
   const acceptSuggestion = async (itemIndex, chosen) => {
@@ -241,6 +313,7 @@ export default function FoodImageLogger({
       else if (doc.perQuantity) grams = qty * (doc.perQuantity ?? 100);
       else if (doc.gramsPerUnit) grams = qty * doc.gramsPerUnit;
       else grams = qty * 100;
+
       const calories = (grams / 100) * (doc.caloriesPer100g ?? doc.calories_kcal ?? 0);
       const protein = (grams / 100) * (doc.proteinPer100g ?? doc.protein_g ?? 0);
       const carbs = (grams / 100) * (doc.carbsPer100g ?? doc.carbs_g ?? 0);
@@ -267,14 +340,14 @@ export default function FoodImageLogger({
       cloned.selectionMap = cloned.selectionMap || {};
       cloned.selectionMap[itemIndex] = doc._id ?? doc.displayName ?? chosenName;
 
-      // recompute totals
+      // recompute totals by multiplying per-unit values by quantity
       cloned.totals = {
-        calories: Math.round(cloned.items.reduce((s, it) => s + (Number(it.calories) || 0), 0)),
-        protein: Number((cloned.items.reduce((s, it) => s + (Number(it.protein) || 0), 0)).toFixed(2)),
-        carbs: Number((cloned.items.reduce((s, it) => s + (Number(it.carbs) || 0), 0)).toFixed(2)),
-        fats: Number((cloned.items.reduce((s, it) => s + (Number(it.fats) || 0), 0)).toFixed(2)),
-        fiber: Number((cloned.items.reduce((s, it) => s + (Number(it.fiber) || 0), 0)).toFixed(2)),
-        sugar: Number((cloned.items.reduce((s, it) => s + (Number(it.sugar) || 0), 0)).toFixed(2))
+        calories: Math.round(cloned.items.reduce((s, it) => s + (Number(it.calories) || 0) * (Number(it.quantity) || 1), 0) * 100) / 100,
+        protein: Number((cloned.items.reduce((s, it) => s + (Number(it.protein) || 0) * (Number(it.quantity) || 1), 0)).toFixed(2)),
+        carbs: Number((cloned.items.reduce((s, it) => s + (Number(it.carbs) || 0) * (Number(it.quantity) || 1), 0)).toFixed(2)),
+        fats: Number((cloned.items.reduce((s, it) => s + (Number(it.fats) || 0) * (Number(it.quantity) || 1), 0)).toFixed(2)),
+        fiber: Number((cloned.items.reduce((s, it) => s + (Number(it.fiber) || 0) * (Number(it.quantity) || 1), 0)).toFixed(2)),
+        sugar: Number((cloned.items.reduce((s, it) => s + (Number(it.sugar) || 0) * (Number(it.quantity) || 1), 0)).toFixed(2))
       };
 
       setAnalysis(cloned);
@@ -286,53 +359,84 @@ export default function FoodImageLogger({
   };
 
   const addToLog = async () => {
-    if (!analysis?.items?.length && !ml) {
+    if (!analysis?.items?.length) {
       toast.error("No analysis to add");
       return;
     }
     setAdding(true);
     try {
-      const totals = analysis?.totals || {};
-      const rawInput = (ml?.dish) ? ml.dish : (analysis?.meal?.rawInput || "Image meal");
-      const selectionMap = analysis?.selectionMap ?? null;
+      const itemsWithQuantity = (analysis.items || []).map((item) => ({
+        userInputName: item.userInputName,
+        dishName: item.dishName,
+        foodId: item.foodId,
+        quantity: Number(item.quantity || 1),
+        unit: item.unit,
+        grams: item.grams,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fats: item.fats,
+        fiber: item.fiber,
+        sugar: item.sugar,
+        isEstimated: item.isEstimated,
+        preparation: item.preparation
+      }));
 
-      const serverResp = await addToLogServer({
-        rawInput,
-        totals,
+      const computedTotals = itemsWithQuantity.reduce((acc, it) => {
+        const q = Number(it.quantity || 1);
+        acc.calories += (Number(it.calories) || 0) * q;
+        acc.protein += (Number(it.protein) || 0) * q;
+        acc.carbs += (Number(it.carbs) || 0) * q;
+        acc.fats += (Number(it.fats) || 0) * q;
+        acc.fiber += (Number(it.fiber) || 0) * q;
+        acc.sugar += (Number(it.sugar) || 0) * q;
+        return acc;
+      }, { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, sugar: 0 });
+
+      const totals = {
+        calories: Math.round(computedTotals.calories * 100) / 100,
+        protein: Math.round(computedTotals.protein * 100) / 100,
+        carbs: Math.round(computedTotals.carbs * 100) / 100,
+        fats: Math.round(computedTotals.fats * 100) / 100,
+        fiber: Math.round(computedTotals.fiber * 100) / 100,
+        sugar: Math.round(computedTotals.sugar * 100) / 100
+      };
+
+      const payload = {
         userId: user._id,
-        selectionMap
-      });
+        rawInput: ml?.dish || "Image meal",
+        selectionMap: analysis.selectionMap || null,
+        items: itemsWithQuantity,
+        totals
+      };
 
-      if (!serverResp) {
-        toast.error("Failed to persist meal");
+      const serverResp = await postImageMeal(payload);
+
+      if (!serverResp?.meal) {
+        toast.error("Failed to save meal");
         return;
       }
 
-      // Map meal totals (calories/protein/...) into completed* shape for daily totals hook
       const completedTotals = {
-        completedCalories: Number(totals.calories ?? totals.completedCalories ?? 0),
-        completedProtein: Number(totals.protein ?? totals.completedProtein ?? 0),
-        completedCarbs: Number(totals.carbs ?? totals.completedCarbs ?? 0),
-        completedFat: Number(totals.fats ?? totals.completedFat ?? 0),
-        completedFiber: Number(totals.fiber ?? totals.completedFiber ?? 0),
-        completedSugar: Number(totals.sugar ?? totals.completedSugar ?? 0),
+        completedCalories: totals.calories,
+        completedProtein: totals.protein,
+        completedCarbs: totals.carbs,
+        completedFat: totals.fats,
+        completedFiber: totals.fiber,
+        completedSugar: totals.sugar
       };
 
       if (typeof refreshDailyTotals === "function") {
-        try {
-          await refreshDailyTotals();
-        } catch (e) {
-          if (typeof applyIncrement === "function") applyIncrement(completedTotals);
-        }
-      } else {
-        if (typeof applyIncrement === "function") applyIncrement(completedTotals);
+        await refreshDailyTotals();
+      } else if (typeof applyIncrement === "function") {
+        applyIncrement(completedTotals);
       }
 
       setAnalysis(null);
       setMl(null);
       setPreview(null);
       if (fileRef.current) fileRef.current.value = "";
-      toast.success("Saved meal and updated daily totals");
+      toast.success("Meal saved successfully!");
     } catch (err) {
       console.error("addToLog error:", err);
       toast.error("Failed to save meal");
@@ -481,17 +585,9 @@ export default function FoodImageLogger({
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
                         Portion: {it.grams ? `${it.grams} g` : (it.unit || "1 serving")}
                       </p>
-                        {/* Top-level ML confidence display */}
-                        {ml && (ml.confidence ?? ml.confidenceScore ?? ml.conf) != null && (
-                          <div className="flex items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1 gap-2 text-sm">
-                            <span className="font-bold">Model confidence:</span>
-                            <ConfidenceBadge value={ml.confidence ?? ml.confidenceScore ?? ml.conf} />
-                            <span className="text-xs text-gray-400"> (higher is better)</span>
-                          </div>
-                        )}
                     </div>
                     <div className="text-right">
-                      <span className="block text-2xl font-black text-[#00A676]">{it.calories !== null ? f(it.calories) : "—"}</span>
+                      <span className="block text-2xl font-black text-[#00A676]">{it.calories !== null ? f(Math.round(it.calories * qty * 100) / 100) : "—"}</span>
                       <span className="text-xs font-bold text-gray-400 uppercase">kcal</span>
                     </div>
                   </div>
@@ -500,24 +596,14 @@ export default function FoodImageLogger({
                     <span className="text-sm font-bold text-gray-600">Adjust Quantity</span>
                     <div className="flex items-center gap-4">
                       <button
-                        onClick={() => {
-                          changeQty(idx, -1);
-                          const cloned = JSON.parse(JSON.stringify(analysis));
-                          cloned.items[idx].quantity = Math.max(1, (cloned.items[idx].quantity || 1) - 1);
-                          setAnalysis(cloned);
-                        }}
+                        onClick={() => changeQty(idx, -1)}
                         className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-bold text-[#00A676] border border-gray-100"
                       >
                         -
                       </button>
                       <span className="w-6 text-center font-black text-lg">{qty}</span>
                       <button
-                        onClick={() => {
-                          changeQty(idx, 1);
-                          const cloned = JSON.parse(JSON.stringify(analysis));
-                          cloned.items[idx].quantity = (cloned.items[idx].quantity || 1) + 1;
-                          setAnalysis(cloned);
-                        }}
+                        onClick={() => changeQty(idx, 1)}
                         className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-bold text-[#00A676] border border-gray-100"
                       >
                         +
