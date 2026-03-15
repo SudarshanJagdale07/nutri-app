@@ -11,6 +11,7 @@ import History from "../pages/History";
 import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 import ProtectedRoute from "../components/ProtectedRoute";
+import ScrollToTop from "../components/ScrollToTop";
 import useUserStore from "../store/user";
 
 /**
@@ -24,6 +25,7 @@ function WithSidebar({ children }) {
 
   return (
     <div className="flex min-h-screen bg-[#F2F6F2]">
+      <ScrollToTop />
       {user && <Sidebar />}
       <div className={`flex-1 ${user ? "md:ml-72" : ""}`}>
         <Navbar />

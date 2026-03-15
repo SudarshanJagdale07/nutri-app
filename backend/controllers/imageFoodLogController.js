@@ -1,16 +1,10 @@
 // backend/controllers/foodImageAdapterController.js
+import { ObjectId } from "mongodb";
 import { analyzeFood } from "../services/imageAnalysisService.js";
-/**
- * IMPORTANT:
- * Replace the import below with whatever DB/collection accessor your project uses.
- * Example options (pick the one your project uses):
- * - import { nutritionItems } from "../config/db.js";         // if you export collection handles
- * - import FoodsModel from "../models/foodModel.js";          // if using a Mongoose model (use FoodsModel.findOne)
- * - const { getCollection } = require("../lib/db");          // if you have helper to get collections
- *
- * I use `nutritionItems` below as the collection handle. If your project uses a different
- * export/name/path, change only the line below to match your project.
- */
+import { computeTotalsFromItems, parseMlQuantityToGrams, computeNutritionFromDoc } from "../services/nutritionCalculationService.js";
+import { saveMeal, updateDailyNutrition } from "../services/mealPersistenceService.js";
+import { nutritionItems } from "../config/db.js";
+import { getLocalDateString } from "../utils/dateUtils.js";
 
 /**
  * analyzeImageAdapter
@@ -22,106 +16,6 @@ import { analyzeFood } from "../services/imageAnalysisService.js";
  * Important: this adapter intentionally reuses the existing text analysis endpoint
  * so all matching, suggestion and parsing logic remains unchanged.
  */
- 
-// ---------------------
-// Helpers for image-only preview calculation (kept inside this file)
-// ---------------------
-
-// conservative mapping if mlQuantity text uses common units (cup, plate, glass, bowl)
-const UNIT_GRAMS_MAP = {
-  cup: 200,
-  cups: 200,
-  plate: 200,
-  bowl: 200,
-  glass: 200,
-  slice: 100,
-  piece: null // piece handled separately
-};
-
-function parseMlQuantityToGrams(mlQuantity, doc) {
-  // mlQuantity examples: "6 pieces", "1 cup", "1 plate (200g)", "2 slices"
-  if (!mlQuantity || typeof mlQuantity !== "string") return null;
-
-  // If doc.servingWeight_g exists (prefer explicit grams), use it
-  if (doc && doc.servingWeight_g && Number(doc.servingWeight_g) > 0) {
-    return Number(doc.servingWeight_g);
-  }
-
-  // If the mlQuantity contains explicit grams like "(200g)", prefer that
-  const explicitGramsMatch = mlQuantity.match(/\((\d+(?:\.\d+)?)\s*g\)/i);
-  if (explicitGramsMatch) {
-    return Number(explicitGramsMatch[1]);
-  }
-
-  // Basic parse of "2 cups" or "1 bowl"
-  const m = mlQuantity.trim().match(/^(\d+(?:\.\d+)?)(?:\s*([a-zA-Z]+))/);
-  if (!m) return null;
-  const qtyNum = Number(m[1]);
-  const qtyUnit = (m[2] || "").toLowerCase();
-
-  if (qtyUnit === "piece" || qtyUnit === "pieces") {
-    return null; // piece-based handled separately by caller
-  }
-
-  if (UNIT_GRAMS_MAP[qtyUnit]) {
-    return qtyNum * UNIT_GRAMS_MAP[qtyUnit];
-  }
-
-  // fallback: assume mlQuantity refers to multiples of doc.perQuantity (e.g., perQuantity = 100 g)
-  const perQ = Number(doc?.perQuantity || 100);
-  return qtyNum * perQ;
-}
-
-function computeNutritionFromDoc(doc, gramsOverride = null) {
-  // doc must contain: perQuantity, unit and macros (calories_kcal, protein_g, carbs_g, fat_g, fiber_g?, sugar_g?)
-  const unit = String((doc.unit || "")).toLowerCase();
-  const perQ = Number(doc.perQuantity || 100);
-
-  const isPiece = unit === "piece" || (perQ === 1 && unit === "piece");
-
-  const round2 = v => Math.round((Number(v) || 0) * 100) / 100;
-
-  if (isPiece) {
-    // Treat stored macros as per-piece values (perQuantity == 1)
-    const caloriesPerPiece = Number(doc.calories_kcal || doc.calories || 0);
-    const proteinPerPiece = Number(doc.protein_g || 0);
-    const carbsPerPiece = Number(doc.carbs_g || 0);
-    const fatPerPiece = Number(doc.fat_g || 0);
-    const fiberPerPiece = Number(doc.fiber_g || 0);
-    const sugarPerPiece = Number(doc.sugar_g || 0);
-    return {
-      calories: round2(caloriesPerPiece),
-      protein: round2(proteinPerPiece),
-      carbs: round2(carbsPerPiece),
-      fat: round2(fatPerPiece),
-      fiber: round2(fiberPerPiece),
-      sugar: round2(sugarPerPiece),
-      isPiece: true,
-      grams: gramsOverride || null
-    };
-  } else {
-    // Weight-based: compute using gramsOverride (serving grams) / perQuantity
-    const grams = Number(gramsOverride || perQ);
-    const multiplier = perQ > 0 ? (grams / perQ) : 1;
-    const caloriesPerBase = Number(doc.calories_kcal ?? doc.calories ?? 0);
-    const proteinPerBase = Number(doc.protein_g ?? 0);
-    const carbsPerBase = Number(doc.carbs_g ?? 0);
-    const fatPerBase = Number(doc.fat_g ?? 0);
-    const fiberPerBase = Number(doc.fiber_g ?? 0);
-    const sugarPerBase = Number(doc.sugar_g ?? 0);
-
-    return {
-      calories: round2(caloriesPerBase * multiplier),
-      protein: round2(proteinPerBase * multiplier),
-      carbs: round2(carbsPerBase * multiplier),
-      fat: round2(fatPerBase * multiplier),
-      fiber: round2(fiberPerBase * multiplier),
-      sugar: round2(sugarPerBase * multiplier),
-      isPiece: false,
-      grams
-    };
-  }
-}
 
 export async function analyzeImageAdapter(req, res) {
   try {
@@ -190,7 +84,7 @@ export async function analyzeImageAdapter(req, res) {
     if (!doc) {
       // Not found — fallback to existing text flow: call /api/log-text (so previous behavior remains)
       const payload = { text: textInput, userId: req.body?.userId || null, persist: false };
-      const resp = await globalThis.fetch(`${API_BASE}/api/log-text`, {
+      const resp = await globalThis.fetch(`${API_BASE}/api/analyze-text-meal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -219,6 +113,8 @@ export async function analyzeImageAdapter(req, res) {
       preview = {
         name: doc.displayName || doc.name || mlKey,
         mlKey: doc.mlKey || mlKey,
+        foodId: doc._id ?? null,
+        preparation: doc.preparationType ?? null,
         quantityText: mlQuantityRaw || `${count} piece${count > 1 ? "s" : ""}`,
         count,
         servingWeight_g: doc.servingWeight_g && Number(doc.servingWeight_g) > 0 ? Number(doc.servingWeight_g) : null,
@@ -245,6 +141,8 @@ export async function analyzeImageAdapter(req, res) {
       preview = {
         name: doc.displayName || doc.name || mlKey,
         mlKey: doc.mlKey || mlKey,
+        foodId: doc._id ?? null,
+        preparation: doc.preparationType ?? null,
         quantityText: mlQuantityRaw || `${grams} g`,
         servingWeight_g: grams,
         nutrition: {
@@ -268,5 +166,82 @@ export async function analyzeImageAdapter(req, res) {
   } catch (err) {
     console.error("analyzeImageAdapter error:", err);
     return res.status(500).json({ success: false, error: err.message || "Adapter error" });
+  }
+}
+
+// Controller: logImageMeal
+// - Accepts payload: { userId, rawInput, selectionMap, items, totals, date }
+// - Expects items array with adjusted quantity values from frontend image UI
+export async function logImageMeal(req, res) {
+  try {
+    const {
+      userId: rawUserId,
+      rawInput = "Image meal",
+      selectionMap = null,
+      items = null,
+      totals = null,
+      date: providedDate = null,
+      mlConfidence = null
+    } = req.body || {};
+
+    const userId = typeof rawUserId === "string" ? new ObjectId(rawUserId) : rawUserId;
+
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items array required" });
+
+    const date = providedDate || getLocalDateString(new Date());
+    const timestamp = new Date();  // <-- This creates Date object
+
+    // Normalize items: ensure numeric quantity and numeric macros
+    const normalizedItems = items.map((it) => ({
+      userInputName: it.userInputName ?? it.dishName ?? it.name ?? "",
+      dishName: it.dishName ?? it.userInputName ?? it.name ?? "",
+      foodId: it.foodId ? new ObjectId(it.foodId) : (it._id ? new ObjectId(it._id) : null),
+      quantity: Number(it.quantity || 1),
+      unit: it.unit ?? "serving",
+      grams: it.grams ?? it.servingWeight_g ?? null,
+      calories: Number(it.calories ?? 0),
+      protein: Number(it.protein ?? 0),
+      carbs: Number(it.carbs ?? 0),
+      fats: Number(it.fats ?? 0),
+      fiber: Number(it.fiber ?? 0),
+      sugar: Number(it.sugar ?? 0),
+      isEstimated: it.isEstimated ?? false,
+      preparation: it.preparation ?? null
+    }));
+
+    // Compute totals if not provided or invalid
+    let finalTotals = totals;
+    if (!finalTotals || typeof finalTotals !== "object" || !Number.isFinite(Number(finalTotals.calories))) {
+      finalTotals = computeTotalsFromItems(normalizedItems);
+    }
+
+    const mealDoc = {
+      userId,
+      rawInput,
+      date,
+      timestamp,
+      createdAt: timestamp,
+      items: normalizedItems,
+      totalCalories: Number(finalTotals.calories || 0),
+      totalProtein: Number(finalTotals.protein || 0),
+      totalCarbs: Number(finalTotals.carbs || 0),
+      totalFats: Number(finalTotals.fats || 0),
+      totalFiber: Number(finalTotals.fiber || 0),
+      totalSugar: Number(finalTotals.sugar || 0),
+      selectionMap: selectionMap ?? null,
+      mlConfidence: mlConfidence ?? null,
+      meta: { source: "image_flow", persistedBy: "logImageMeal", persistedAt: timestamp }
+    };
+
+    const savedMeal = await saveMeal(mealDoc, userId);
+
+    // Upsert daily totals
+    await updateDailyNutrition(userId, date, mealDoc, savedMeal._id);
+
+    return res.json({ meal: savedMeal });
+  } catch (err) {
+    console.error("logImageMeal error:", err);
+    return res.status(500).json({ error: err.message || "logImageMeal error" });
   }
 }

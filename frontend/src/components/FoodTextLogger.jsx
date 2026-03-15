@@ -5,6 +5,7 @@
 import React, { useState } from "react";
 import toast from "react-hot-toast";
 import { topCandidates } from "../utils/fuzzy";
+import { getLocalDateString } from "../utils/weekUtils";
 
 /**
  * Props:
@@ -102,7 +103,7 @@ export default function FoodTextLogger({
         sugar: roundToTwo(items.reduce((s, ii) => s + (Number(ii.sugar) || 0), 0))
       };
 
-      setTextAnalysisResult({ meal: mealObj ?? { items }, items, totals, candidates });
+      setTextAnalysisResult({ meal: mealObj ?? { items }, items, originalItems: JSON.parse(JSON.stringify(items)), totals, candidates, selectedSuggestions: {} });
       toast.success("Analysis complete — review below (not saved)");
     } catch (err) {
       console.error("analyzeText error:", err);
@@ -132,8 +133,45 @@ export default function FoodTextLogger({
       return;
     }
 
+    // If this suggestion is already selected, deselect and restore original
+    const alreadySelected = cloned.selectedSuggestions?.[itemIndex] === chosenName;
+    if (alreadySelected) {
+      const original = cloned.originalItems?.[itemIndex];
+      if (original) {
+        cloned.items[itemIndex] = { ...original };
+        if (cloned.meal && Array.isArray(cloned.meal.items) && cloned.meal.items[itemIndex]) {
+          cloned.meal.items[itemIndex] = { ...original };
+        }
+      }
+      delete cloned.selectionMap?.[itemIndex];
+      delete cloned.selectedSuggestions[itemIndex];
+      cloned.totals = {
+        calories: Math.round(cloned.items.reduce((s, it) => s + (Number(it.calories) || 0), 0)),
+        protein: roundToTwo(cloned.items.reduce((s, it) => s + (Number(it.protein) || 0), 0)),
+        carbs: roundToTwo(cloned.items.reduce((s, it) => s + (Number(it.carbs) || 0), 0)),
+        fats: roundToTwo(cloned.items.reduce((s, it) => s + (Number(it.fats) || 0), 0)),
+        fiber: roundToTwo(cloned.items.reduce((s, it) => s + (Number(it.fiber) || 0), 0)),
+        sugar: roundToTwo(cloned.items.reduce((s, it) => s + (Number(it.sugar) || 0), 0))
+      };
+      if (cloned.meal) {
+        cloned.meal.totalCalories = cloned.totals.calories;
+        cloned.meal.totalProtein = cloned.totals.protein;
+        cloned.meal.totalCarbs = cloned.totals.carbs;
+        cloned.meal.totalFats = cloned.totals.fats;
+        cloned.meal.totalFiber = cloned.totals.fiber;
+        cloned.meal.totalSugar = cloned.totals.sugar;
+      }
+      setTextAnalysisResult(cloned);
+      toast.success("Selection removed — restored original values");
+      return;
+    }
+
+    // Read preferPrep from the candidate group so the correct preparation variant is fetched
+    const group = textAnalysisResult?.candidates?.find((g) => Number(g.itemIndex) === Number(itemIndex));
+    const preferPrep = group?.preferPrep ?? null;
+
     try {
-      const doc = await fetchFoodDoc(chosenName);
+      const doc = await fetchFoodDoc(chosenName, preferPrep);
       if (!doc) {
         toast.error("Nutrition info not found for selected item");
         return;
@@ -147,15 +185,18 @@ export default function FoodTextLogger({
         grams = qty;
       } else if (unit === "kg") {
         grams = qty * 1000;
-      } else if (doc.perQuantity) {
-        grams = qty * (doc.perQuantity ?? 100);
+      } else if (unit === "piece" || unit === "serving") {
+        const gramPerPiece = parseFloat(doc.gramPerPiece) || parseFloat(doc.gramsPerUnit) || null;
+        grams = gramPerPiece ? qty * gramPerPiece : qty * 100;
       } else if (doc.gramsPerUnit) {
         grams = qty * doc.gramsPerUnit;
       } else {
         grams = qty * 100;
       }
 
-      const isPiece = unit === "piece" || (doc.perQuantity === 1 && unit === "piece");
+      const isPiece = unit === "piece" || unit === "serving";
+      const isWeightInput = unit === "g" || unit === "ml" || unit === "kg";
+      const docIsPieceBased = doc.perQuantity === 1 && String(doc.unit || "").toLowerCase() === "piece";
 
       let calories, protein, carbs, fats, fiber, sugar;
 
@@ -167,6 +208,16 @@ export default function FoodTextLogger({
         fats = (doc.fatPer100g ?? doc.fat_g ?? 0) * qty;
         fiber = (doc.fiberPer100g ?? doc.fiber_g ?? 0) * qty;
         sugar = (doc.sugarPer100g ?? doc.sugar_g ?? 0) * qty;
+      } else if (isWeightInput && docIsPieceBased) {
+        // User gave grams but food is stored per-piece: convert grams -> pieces using gramPerPiece
+        const gramPerPiece = parseFloat(doc.gramPerPiece) || parseFloat(doc.gramsPerUnit) || 100;
+        const pieces = grams / gramPerPiece;
+        calories = (doc.caloriesPer100g ?? doc.calories_kcal ?? 0) * pieces;
+        protein = (doc.proteinPer100g ?? doc.protein_g ?? 0) * pieces;
+        carbs = (doc.carbsPer100g ?? doc.carbs_g ?? 0) * pieces;
+        fats = (doc.fatPer100g ?? doc.fat_g ?? 0) * pieces;
+        fiber = (doc.fiberPer100g ?? doc.fiber_g ?? 0) * pieces;
+        sugar = (doc.sugarPer100g ?? doc.sugar_g ?? 0) * pieces;
       } else {
         // Per-100g: use grams-based calculation
         calories = (grams / 100) * (doc.caloriesPer100g ?? doc.calories_kcal ?? 0);
@@ -193,8 +244,29 @@ export default function FoodTextLogger({
         preparation: doc.preparationType ?? cloned.items[itemIndex].preparation
       };
 
+      // Also update meal.items so addTrackedCalories sends the correct values to DB
+      if (cloned.meal && Array.isArray(cloned.meal.items) && cloned.meal.items[itemIndex]) {
+        cloned.meal.items[itemIndex] = {
+          ...cloned.meal.items[itemIndex],
+          userInputName: doc.displayName || chosenName,
+          dishName: doc.displayName || chosenName,
+          foodId: doc._id ?? null,
+          grams,
+          calories,
+          protein,
+          carbs,
+          fats,
+          fiber,
+          sugar,
+          isEstimated: false,
+          preparation: doc.preparationType ?? cloned.meal.items[itemIndex].preparation
+        };
+      }
+
       cloned.selectionMap = cloned.selectionMap || {};
       cloned.selectionMap[itemIndex] = doc._id ?? doc.displayName ?? chosenName;
+      cloned.selectedSuggestions = cloned.selectedSuggestions || {};
+      cloned.selectedSuggestions[itemIndex] = chosenName;
 
       cloned.totals = {
         calories: Math.round(cloned.items.reduce((s, it) => s + (Number(it.calories) || 0), 0)),
@@ -205,6 +277,16 @@ export default function FoodTextLogger({
         sugar: roundToTwo(cloned.items.reduce((s, it) => s + (Number(it.sugar) || 0), 0))
       };
 
+      // Sync updated totals into meal object so DB gets correct values
+      if (cloned.meal) {
+        cloned.meal.totalCalories = cloned.totals.calories;
+        cloned.meal.totalProtein = cloned.totals.protein;
+        cloned.meal.totalCarbs = cloned.totals.carbs;
+        cloned.meal.totalFats = cloned.totals.fats;
+        cloned.meal.totalFiber = cloned.totals.fiber;
+        cloned.meal.totalSugar = cloned.totals.sugar;
+      }
+
       setTextAnalysisResult(cloned);
       toast.success(`Selected "${doc.displayName}" — nutrition loaded for that item`);
     } catch (err) {
@@ -214,7 +296,7 @@ export default function FoodTextLogger({
   };
 
   /* ---------- Persist analyzed meal to server and update UI ----------
-     - Calls addToLogServer with selectionMap if present
+     - Calls addToLogServer with the pre-computed meal object (no re-parsing on server)
      - Calls applyIncrement (store) and onLocalTotalsUpdate (parent) to update rings/UI
      - NOTE: totals sent to daily aggregation are mapped to canonical completed* fields
   */
@@ -224,24 +306,22 @@ export default function FoodTextLogger({
       return;
     }
     const totals = textAnalysisResult.totals || {};
-    const rawInput = textAnalysisResult.meal?.rawInput || foodInput || "";
+    const hasUnresolved = (textAnalysisResult.items || []).some(it => it.calories === null && it.foodId === null);
+    if (hasUnresolved) {
+      toast.error("Some items have no nutrition data — please select a suggestion first");
+      setAddingToDaily(false);
+      return;
+    }
     setAddingToDaily(true);
     try {
-      // Map legacy totals -> canonical completed* fields for daily aggregates
-      const canonicalTotals = {
-        completedCalories: Number(totals.calories || 0),
-        completedProtein: Number(totals.protein || 0),
-        completedCarbs: Number(totals.carbs || 0),
-        completedFat: Number(totals.fats || 0),
-        completedFiber: Number(totals.fiber || 0),
-        completedSugar: Number(totals.sugar || 0)
+      const mealToSave = {
+        ...textAnalysisResult.meal,
+        date: getLocalDateString(new Date()),
+        items: (textAnalysisResult.meal?.items || []).map(({ suggestions: _s, ...rest }) => rest)
       };
-
       const serverResp = await addToLogServer({
-        rawInput,
-        totals: canonicalTotals,
-        userId: user._id,
-        selectionMap: textAnalysisResult.selectionMap ?? null
+        meal: mealToSave,
+        userId: user._id
       });
       if (!serverResp) {
         toast.error("Failed to persist meal");
@@ -296,7 +376,7 @@ export default function FoodTextLogger({
   /* ---------- DetectedItemCard (inline) ----------
      - Renders a single analyzed item with suggestions
   */
-  const DetectedItemCard = ({ item, index, onAcceptSuggestion }) => {
+  const DetectedItemCard = ({ item, index, onAcceptSuggestion, selectedSuggestionName }) => {
     if (!item) return null;
 
     let uiSuggestions = [];
@@ -375,15 +455,23 @@ export default function FoodTextLogger({
           <div className="mt-3">
             <div className="text-xs text-gray-400 mb-2">Suggestions for ambiguous items</div>
             <div className="flex flex-wrap gap-2">
-              {uiSuggestions.map((cand, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onAcceptSuggestion(index, cand)}
-                  className="px-2 py-1 bg-green-50 text-green-700 rounded-md text-sm hover:bg-green-100"
-                >
-                  {cand.displayName || cand.name || cand}
-                </button>
-              ))}
+              {uiSuggestions.map((cand, idx) => {
+                const candName = cand.displayName || cand.name || cand;
+                const isSelected = selectedSuggestionName === candName;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => onAcceptSuggestion(index, cand)}
+                    className={`px-2 py-1 rounded-md text-sm transition ${
+                      isSelected
+                        ? "bg-green-500 text-white shadow-md ring-2 ring-green-400"
+                        : "bg-green-50 text-green-700 hover:bg-green-100"
+                    }`}
+                  >
+                    {candName}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -499,6 +587,7 @@ export default function FoodTextLogger({
                     item={it}
                     index={idx}
                     onAcceptSuggestion={acceptSuggestion}
+                    selectedSuggestionName={textAnalysisResult.selectedSuggestions?.[idx] ?? null}
                   />
                 ))}
               </div>

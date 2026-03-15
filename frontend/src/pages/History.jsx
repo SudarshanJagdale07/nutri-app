@@ -443,7 +443,6 @@ function History(props) {
         <div className="flex gap-6 border-b border-gray-200 mb-8">
           <Tab label="Meal History" active={activeTab === "history"} onClick={() => setActiveTab("history")} />
           <Tab label="Weekly Trends" active={activeTab === "trends"} onClick={() => setActiveTab("trends")} />
-          <Tab label="Risk Insights" active={activeTab === "risk"} onClick={() => setActiveTab("risk")} />
         </div>
 
         {/* Tab Content */}
@@ -463,7 +462,6 @@ function History(props) {
             formatTooltipValue={formatTooltipValue}
           />
         )}
-        {activeTab === "risk" && <RiskInsightsSection weekData={weekData} />}
 
       </div>
 
@@ -503,7 +501,7 @@ function MealHistorySection({ mealGroups, renderMealItems, onOpenMeal }) {
                 className="w-full text-left flex justify-between items-center py-3 border-b last:border-none hover:bg-gray-50 focus:outline-none"
               >
                 <div>
-                  <div className="font-medium text-left">{meal.dishName || meal.name || meal.rawInput || "Meal"}</div>
+                  <div className="font-medium text-left">{Array.isArray(meal.items) && meal.items.length > 0 ? meal.items.map(it => it.userInputName || it.dishName || it.name || "").filter(Boolean).join(", ") : meal.rawInput || "Meal"}</div>
                   <div className="text-sm text-gray-500">{renderMealItems(meal)}</div>
                   <div className="text-xs text-gray-400 mt-1">{formatMealTime(meal)}</div>
                 </div>
@@ -573,7 +571,7 @@ function MealDetailModal({ meal, onClose }) {
           {items.map((it, idx) => (
             <div key={idx} className="group bg-gray-50 rounded-2xl p-5 border border-gray-100 hover:border-green-200 hover:shadow-sm transition-all">
               <div className="flex justify-between items-start mb-4">
-                <div className="font-bold text-gray-900 text-lg">{it.dishName || it.userInputName || it.name || `Item ${idx + 1}`}</div>
+                <div className="font-bold text-gray-900 text-lg">{it.dishName || it.userInputName || it.name || `Item ${idx + 1}`}{it.preparation ? <span className="ml-2 text-xs font-semibold text-gray-400 uppercase">{it.preparation}</span> : null}</div>
                 <div className="px-3 py-1 bg-white rounded-full text-[10px] font-black text-gray-400 border border-gray-100 uppercase">
                   {it.quantity} {it.unit}
                 </div>
@@ -785,14 +783,5 @@ function Tab({ label, active, onClick }) {
   );
 }
 
-/* ---------- Risk Insights placeholder ---------- */
-function RiskInsightsSection({ weekData }) {
-  return (
-    <div className="bg-white rounded-3xl p-6 shadow-md border border-gray-100">
-      <h2 className="text-lg font-semibold mb-2">Risk Insights</h2>
-      <div className="text-sm text-gray-500">Insights based on weekly nutrition patterns will appear here.</div>
-    </div>
-  );
-}
 
 export default History;

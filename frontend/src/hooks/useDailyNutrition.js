@@ -26,7 +26,8 @@ export function useDailyNutrition(userId) {
     if (!userId) return;
     setLoading(true);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const resp = await getDailyNutrition(userId, today);
       // Accept multiple shapes
       const daily = resp?.data?.daily ?? resp?.daily ?? resp?.data ?? null;

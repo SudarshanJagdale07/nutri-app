@@ -2,6 +2,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import useUserStore from "../store/user";
 import { sendChatMessage } from "../apiManager/chatApi";
+import { getDailyNutrition, getMealsForUser } from "../apiManager/foodApi";
+import { fetchProfile } from "../apiManager/profileApi";
 // Decode HTML entities
 const decodeHTML = (html) => {
   const txt = document.createElement("textarea");
@@ -22,7 +24,7 @@ function Assistant() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState(null);
-  const chatEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
 
   // Load chat history and context from localStorage on mount
   useEffect(() => {
@@ -45,6 +47,38 @@ function Assistant() {
     }
   }, [user?._id]);
 
+  // Fetch latest nutrition data on page open directly — no LLM involved
+  useEffect(() => {
+    if (!user?._id) return;
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    Promise.all([
+      getDailyNutrition(user._id, todayStr).catch(() => null),
+      fetchProfile(user._id).catch(() => null),
+      getMealsForUser(user._id, { limit: 50 }).catch(() => null)
+    ]).then(([dailyResp, profileResp, mealsResp]) => {
+      const daily = dailyResp?.daily ?? null;
+      const profile = profileResp?.data ?? null;
+      const meals = mealsResp?.meals ?? [];
+      const todayMeals = meals.filter(m => m.date === todayStr);
+      const freshContext = {
+        caloriesConsumed: Math.round(daily?.completedCalories ?? 0),
+        calorieGoal: profile?.dailyCalorieTarget ?? 2000,
+        proteinConsumed: Math.round(daily?.completedProtein ?? 0),
+        proteinGoal: profile?.dailyProteinTarget ?? 50,
+        carbsConsumed: Math.round(daily?.completedCarbs ?? 0),
+        carbsGoal: profile?.dailyCarbsTarget ?? 250,
+        fatsConsumed: Math.round(daily?.completedFats ?? 0),
+        fatsGoal: profile?.dailyFatTarget ?? 65,
+        goal: profile?.goal ?? "General Health",
+        diet: profile?.dietPreference ?? "Not specified",
+        mealsLogged: todayMeals.length
+      };
+      setContext(freshContext);
+      localStorage.setItem(`chat_context_${user._id}`, JSON.stringify(freshContext));
+    }).catch(() => {});
+  }, [user?._id]);
+
   // Save chat history to localStorage whenever messages change
   // Save chat history to localStorage whenever messages change (keep last 50)
 useEffect(() => {
@@ -56,7 +90,9 @@ useEffect(() => {
 
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({ top: messagesContainerRef.current.scrollHeight, behavior: "smooth" });
+    }
   }, [messages]);
 
   const handleSend = async (messageText = null) => {
@@ -109,7 +145,7 @@ useEffect(() => {
       <div className="absolute -top-32 -right-32 w-[600px] h-[600px] bg-[#00A676] opacity-10 blur-[140px] rounded-full" />
       <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] bg-[#D9E6DC] opacity-40 blur-[120px] rounded-full" />
 
-      <div className="max-w-6xl mx-auto pt-28 mt-54 pb-16 px-6 md:px-10 relative z-10">
+      <div className="max-w-6xl mx-auto pt-24 pb-16 px-6 md:px-10 relative z-10">
         {/* HEADER */}
         <div className="mb-10">
           <h1 className="text-4xl font-serif font-bold">AI Assistant</h1>
@@ -124,7 +160,7 @@ useEffect(() => {
           <div className="md:col-span-2 bg-white/70 backdrop-blur-xl rounded-[2.5rem] p-8 shadow-lg flex flex-col h-[600px]">
 
             {/* MESSAGES */}
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2">
               {messages.map((msg, index) => (
                 <div
                   key={index}
@@ -167,7 +203,6 @@ useEffect(() => {
                 </div>
               )}
 
-              <div ref={chatEndRef} />
             </div>
 
             {/* QUICK PROMPTS */}

@@ -22,17 +22,32 @@ async function handleResponse(res) {
 }
 
 /**
- * Analyze text and persist a meal on the server.
- * POST /api/log-text
- * Body: { text, userId, persist, selectionMap }
+ * Analyze text meal on the server (no DB writes — analysis only).
+ * POST /api/analyze-text-meal
+ * Body: { text, userId, selectionMap }
  * Returns: parsed meal object (or server response shape)
  *
  * Note: server may return either:
  *  - the meal object directly, or
  *  - { meal, candidates } where candidates is an array of ambiguous matches
  */
-export async function postLogText(payload) {
-  const res = await fetch(`${API_BASE}/api/log-text`, {
+export async function postAnalyzeTextMeal(payload) {
+  const res = await fetch(`${API_BASE}/api/analyze-text-meal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse(res);
+}
+
+/**
+ * Save a pre-computed meal object to the server (no re-parsing).
+ * POST /api/save-text-meal
+ * Body: { meal, userId }
+ * Returns: { meal } with _id populated
+ */
+export async function postSaveTextMeal(payload) {
+  const res = await fetch(`${API_BASE}/api/save-text-meal`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -105,7 +120,7 @@ export async function postImageAnalyze(formData) {
 
 
 export async function postImageMeal(payload) {
-  const res = await fetch(`${API_BASE}/api/log-image-meal`, {
+  const res = await fetch(`${API_BASE}/food-image/log-image-meal`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

@@ -1,5 +1,5 @@
 // frontend/src/components/FoodImageLogger.jsx
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrashAlt, faMagic, faCircleNotch } from '@fortawesome/free-solid-svg-icons';
@@ -96,8 +96,53 @@ export default function FoodImageLogger({
       // --- Normalization: backend may return analysis in two shapes:
       // 1) analysis.items, analysis.totals (preferred)
       // 2) analysis.meal.items, analysis.candidates, meal.totalCalories etc.
+      // 3) preview shape: { name, nutrition: { calories, protein, carbs, fat, fiber, sugar }, isPiece, count }
       // Convert either into canonical shape:
       // { items: [...], totals: {...}, selectionMap: {...} }
+
+      // Handle preview shape from image-only flow
+      if (resp.preview && !resp.analysis) {
+        const p = resp.preview;
+        const n = p.nutrition || {};
+        const qty = p.count || 1;
+        const item = {
+          userInputName: p.name || "",
+          dishName: p.name || "",
+          foodId: p.foodId ?? null,
+          quantity: qty,
+          unit: p.isPiece ? "piece" : "g",
+          grams: p.servingWeight_g ?? null,
+          calories: Number(n.calories || 0),
+          protein: Number(n.protein || 0),
+          carbs: Number(n.carbs || 0),
+          fats: Number(n.fat || 0),
+          fiber: Number(n.fiber || 0),
+          sugar: Number(n.sugar || 0),
+          isEstimated: false,
+          preparation: p.preparation ?? null,
+          suggestions: [],
+          confidence: resp.ml?.confidence ?? null
+        };
+        const map = { 0: qty };
+        setQtyMap(map);
+        setAnalysis({
+          items: [item],
+          totals: {
+            calories: Math.round(item.calories * qty * 100) / 100,
+            protein: Math.round(item.protein * qty * 100) / 100,
+            carbs: Math.round(item.carbs * qty * 100) / 100,
+            fats: Math.round(item.fats * qty * 100) / 100,
+            fiber: Math.round(item.fiber * qty * 100) / 100,
+            sugar: Math.round(item.sugar * qty * 100) / 100
+          },
+          selectionMap: null
+        });
+        toast.success("Analysis complete — review below");
+        setAnalyzing(false);
+        setScannerActive(false);
+        return;
+      }
+
       const raw = resp.analysis || {};
       let normalized = { items: [], totals: {}, selectionMap: null };
 
@@ -365,31 +410,33 @@ export default function FoodImageLogger({
     }
     setAdding(true);
     try {
-      const itemsWithQuantity = (analysis.items || []).map((item) => ({
-        userInputName: item.userInputName,
-        dishName: item.dishName,
-        foodId: item.foodId,
-        quantity: Number(item.quantity || 1),
-        unit: item.unit,
-        grams: item.grams,
-        calories: item.calories,
-        protein: item.protein,
-        carbs: item.carbs,
-        fats: item.fats,
-        fiber: item.fiber,
-        sugar: item.sugar,
-        isEstimated: item.isEstimated,
-        preparation: item.preparation
-      }));
+      const itemsWithQuantity = (analysis.items || []).map((item) => {
+        const q = Number(item.quantity || 1);
+        return {
+          userInputName: item.userInputName,
+          dishName: item.dishName,
+          foodId: item.foodId,
+          quantity: q,
+          unit: item.unit,
+          grams: item.grams != null ? Math.round(item.grams * q * 100) / 100 : null,
+          calories: Math.round((Number(item.calories) || 0) * q * 100) / 100,
+          protein: Math.round((Number(item.protein) || 0) * q * 100) / 100,
+          carbs: Math.round((Number(item.carbs) || 0) * q * 100) / 100,
+          fats: Math.round((Number(item.fats) || 0) * q * 100) / 100,
+          fiber: Math.round((Number(item.fiber) || 0) * q * 100) / 100,
+          sugar: Math.round((Number(item.sugar) || 0) * q * 100) / 100,
+          isEstimated: item.isEstimated,
+          preparation: item.preparation
+        };
+      });
 
       const computedTotals = itemsWithQuantity.reduce((acc, it) => {
-        const q = Number(it.quantity || 1);
-        acc.calories += (Number(it.calories) || 0) * q;
-        acc.protein += (Number(it.protein) || 0) * q;
-        acc.carbs += (Number(it.carbs) || 0) * q;
-        acc.fats += (Number(it.fats) || 0) * q;
-        acc.fiber += (Number(it.fiber) || 0) * q;
-        acc.sugar += (Number(it.sugar) || 0) * q;
+        acc.calories += (Number(it.calories) || 0);
+        acc.protein += (Number(it.protein) || 0);
+        acc.carbs += (Number(it.carbs) || 0);
+        acc.fats += (Number(it.fats) || 0);
+        acc.fiber += (Number(it.fiber) || 0);
+        acc.sugar += (Number(it.sugar) || 0);
         return acc;
       }, { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, sugar: 0 });
 
@@ -407,7 +454,8 @@ export default function FoodImageLogger({
         rawInput: ml?.dish || "Image meal",
         selectionMap: analysis.selectionMap || null,
         items: itemsWithQuantity,
-        totals
+        totals,
+        mlConfidence: ml?.confidence ?? null
       };
 
       const serverResp = await postImageMeal(payload);
@@ -446,6 +494,13 @@ export default function FoodImageLogger({
   };
 
   // Small helper to scale macros for display
+  const handleClear = useCallback(() => {
+    setPreview(null);
+    setAnalysis(null);
+    setMl(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }, []);
+
   const scaleMacro = (val, qty) => {
     if (!val) return "0g";
     const num = parseFloat(val);
@@ -455,7 +510,7 @@ export default function FoodImageLogger({
   // Small helper to render a confidence badge
   const ConfidenceBadge = ({ value }) => {
     if (value == null || isNaN(value)) return null;
-    const pct = Math.round(Number(value) * 100);
+    const pct = (Number(value) * 100).toFixed(1);
     let bg = "bg-red-100 text-red-800";
     if (value >= 0.85) bg = "bg-green-100 text-green-800";
     else if (value >= 0.7) bg = "bg-yellow-100 text-yellow-800";
@@ -547,12 +602,7 @@ export default function FoodImageLogger({
           </button>
           <button
           className="w-12 h-12 bg-white/90 backdrop-blur rounded-xl flex items-center justify-center text-red-500 hover:bg-red-50 hover:text-red-600 transition-all shadow-lg border border-red-50"
-          onClick={() => {
-            setPreview(null);
-            setAnalysis(null);
-            setMl(null);
-            if (fileRef.current) fileRef.current.value = "";
-          }}
+          onClick={handleClear}
         >
           <FontAwesomeIcon icon={faTrashAlt} />
         </button>
@@ -617,22 +667,7 @@ export default function FoodImageLogger({
                     <MacroBox label="Carbs" val={scaleMacro(it.carbs, qty)} icon="🍞" color="bg-blue-50 text-blue-700" />
                   </div>
 
-                  {it.suggestions && it.suggestions.length > 0 && (
-                    <div className="mt-3">
-                      <div className="text-xs text-gray-400 mb-2">Suggestions for ambiguous items</div>
-                      <div className="flex flex-wrap gap-2">
-                        {it.suggestions.map((cand, cidx) => (
-                          <button
-                            key={cidx}
-                            onClick={() => acceptSuggestion(idx, cand)}
-                            className="px-3 py-1 bg-green-50 text-green-700 rounded-md text-sm hover:bg-green-100 border border-green-100"
-                          >
-                            {cand.displayName || cand.name || cand}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+
                 </div>
               );
             })

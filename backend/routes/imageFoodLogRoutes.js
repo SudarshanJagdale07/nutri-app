@@ -1,8 +1,8 @@
-// backend/routes/foodImageRoutes.js
+// backend/routes/imageFoodLogRoutes.js
 import express from "express";
 import multer from "multer";
 import path from "path";
-import { analyzeImageAdapter } from "../controllers/foodImageAdapterController.js";
+import { analyzeImageAdapter, logImageMeal } from "../controllers/imageFoodLogController.js";
 
 const router = express.Router();
 
@@ -25,5 +25,7 @@ const upload = multer({ storage });
  * - Returns combined response: { success, ml, analysis }
  */
 router.post("/analyze", upload.single("image"), analyzeImageAdapter);
+
+router.post("/log-image-meal", logImageMeal);
 
 export default router;

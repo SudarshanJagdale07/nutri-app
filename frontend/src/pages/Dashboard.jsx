@@ -4,7 +4,7 @@ import useUserStore from "../store/user";
 import { useNavigate } from "react-router-dom";
 import { fetchProfile } from "../apiManager/profileApi"; // keep if exists
 import toast from "react-hot-toast";
-import { postLogText, postAddToDaily, getDailyNutrition, postImageAnalyze } from "../apiManager/foodApi"; // backend API client (kept for backward compatibility)
+import { postAddToDaily, getDailyNutrition, postImageAnalyze } from "../apiManager/foodApi"; // backend API client (kept for backward compatibility)
 import useMealAnalysis from "../hooks/useMealAnalysis";
 import useDailyNutrition from "../hooks/useDailyNutrition";
 import { formatNumberSmart } from "../utils/weekUtils"; // smart number formatting (2 decimals only when needed)
@@ -26,7 +26,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
 
   // Hooks for backend interactions & daily totals
-  const { analyze: analyzeServer, addToLog: addToLogServer, fetchFoodDoc } = useMealAnalysis();
+  const { analyzeTextMeal, saveTextMeal, fetchFoodDoc } = useMealAnalysis();
   const { totals: dailyTotals, loading: dailyLoading, refresh, applyIncrement } = useDailyNutrition(user?._id);
 
   const [profile, setProfile] = useState(null);
@@ -242,7 +242,7 @@ const Dashboard = () => {
                 <FoodImageLogger
                   user={user}
                   postImageAnalyze={postImageAnalyze}
-                  addToLogServer={addToLogServer}
+                  addToLogServer={saveTextMeal}
                   fetchFoodDoc={fetchFoodDoc}
                   applyIncrement={applyIncrement}
                   refreshDailyTotals={() => { refresh(); }}
@@ -255,8 +255,8 @@ const Dashboard = () => {
             {activeTab === "text" && (
               <FoodTextLogger
                 user={user}
-                analyzeServer={analyzeServer}
-                addToLogServer={addToLogServer}
+                analyzeServer={analyzeTextMeal}
+                addToLogServer={saveTextMeal}
                 fetchFoodDoc={fetchFoodDoc}
                 applyIncrement={applyIncrement}
                 refreshDailyTotals={() => {refresh()}}
@@ -268,15 +268,6 @@ const Dashboard = () => {
 
         {/* ✅ PREDICTIVE TOMORROW — Features 6, 7, 8 */}
         <PredictiveTomorrow userId={user?._id} />
-
-        {/* Insight Card */}
-        <div className="bg-white/70 backdrop-blur-xl rounded-[3rem] p-10 shadow-lg mb-16 transition transform hover:scale-[1.02] hover:shadow-xl">
-          <h2 className="text-2xl font-serif font-bold mb-4">Weekly Insight</h2>
-          <p className="text-gray-600 mb-6">Your sugar intake increased by 20% this week.</p>
-          <button onClick={() => navigate("/assistant")} className="text-[#00A676] font-bold hover:underline">
-            Get suggestions →
-          </button>
-        </div>
 
         {isEvening && (
           <div className="bg-[#00A676]/10 rounded-[2.5rem] p-8 text-center">

@@ -1,38 +1,11 @@
 // backend/controllers/chatController.js
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { MongoClient, ObjectId } from "mongodb";
+import { ObjectId } from "mongodb";
 import dotenv from "dotenv";
 dotenv.config();
 
-// ---------------------------
-// MongoDB connection
-// ---------------------------
-function sanitizeMongoUri(uri) {
-  if (!uri || typeof uri !== "string") return uri;
-  const idx = uri.indexOf("?");
-  if (idx === -1) return uri;
-  const base = uri.slice(0, idx);
-  const qs = uri.slice(idx + 1);
-  const pairs = qs.split("&").filter(Boolean);
-  const drop = new Set(["useunifiedtopology", "usenewurlparser", "uselegacyutf8encoding"]);
-  const kept = [];
-  for (const p of pairs) {
-    const [k] = p.split("=");
-    if (!k) continue;
-    if (drop.has(String(k).toLowerCase())) continue;
-    kept.push(p);
-  }
-  return kept.length ? `${base}?${kept.join("&")}` : base;
-}
-
-
-const MONGO_URI = sanitizeMongoUri(process.env.MONGO_URI || "mongodb://localhost:27017");
-const client = new MongoClient(MONGO_URI);
-await client.connect();
-const db = client.db("nutrition_ai_projectDB");
-const dailyNutritionCol = db.collection("daily_nutrition");
-const mealsCol = db.collection("meals");
-const usersCol = db.collection("users");
+import { db, dailyNutritionCol, mealsCol } from "../config/db.js";
+import { getWeekNutrition, getUserProfile } from "../services/userNutritionDataService.js";
 
 // ---------------------------
 // Gemini setup
@@ -40,43 +13,6 @@ const usersCol = db.collection("users");
 const genAI = process.env.GEMINI_API_KEY
   ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
   : null;
-
-// ---------------------------
-// Helper: get last 7 days nutrition data
-// ---------------------------
-async function getWeekNutrition(userId) {
-  try {
-    const userObjId = typeof userId === "string" ? new ObjectId(userId) : userId;
-    const dates = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-    }
-
-    const weekData = await dailyNutritionCol.find({ userId: userObjId, date: { $in: dates } }).toArray();
-    const weekMeals = await mealsCol.find({ userId: userObjId, date: { $in: dates } }).toArray();
-
-    return { weekData, weekMeals, dates };
-  } catch (err) {
-    console.error("getWeekNutrition error:", err);
-    return { weekData: [], weekMeals: [], dates: [] };
-  }
-}
-
-// ---------------------------
-// Helper: get user profile/goals
-// ---------------------------
-async function getUserProfile(userId) {
-  try {
-    const userObjId = typeof userId === "string" ? new ObjectId(userId) : userId;
-    const userProfile = await db.collection("userprofiles").findOne({ userId: userObjId });
-    return userProfile;
-  } catch {
-    return null;
-  }
-}
-
 
 // ============================================================
 // Controller: handleChat
