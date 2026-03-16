@@ -15,12 +15,12 @@ export function simpleParse(text) {
 
   // Normalize separators and remove parentheses
   let normalized = text
+    .replace(/^\s*i\s+(ate|had|drank|consumed|eaten|drink|eat|have)\s+/i, "")
     .replace(/[()]/g, " ")
     .replace(/[,;&+]/g, " , ")
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  // Lowercase for parsing
   const lower = normalized.toLowerCase();
 
   // detect global preparation hint from the whole text
@@ -36,7 +36,10 @@ export function simpleParse(text) {
     if (!segRaw) continue;
 
     // Remove stray stopwords/prepositions at edges
-    let seg = segRaw.replace(/(^\b(?:a|an|the|with|and|of|for|in|on|at)\b)|(\b(?:a|an|the|with|and|of|for|in|on|at)\b$)/gi, "").trim();
+    let seg = segRaw
+      .replace(/^\s*(?:then\s+)?(?:in\s+)?(?:morning|evening|afternoon|night|breakfast|lunch|dinner|snack)\s+/i, "")
+      .replace(/^\s*i\s+(ate|had|drank|consumed|eaten|drink|eat|have)\s+/i, "")
+      .replace(/(^\b(?:a|an|the|with|and|of|for|in|on|at)\b)|(\b(?:a|an|the|with|and|of|for|in|on|at)\b$)/gi, "").trim();
 
     // Replace multiple spaces
     seg = seg.replace(/\s{2,}/g, " ").trim();

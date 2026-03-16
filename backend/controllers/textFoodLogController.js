@@ -1,6 +1,6 @@
 // backend/controllers/nutritionController.js
 import { ObjectId } from "mongodb";
-import { model, validateLLM, callWithRetry } from "../services/llmService.js";
+import { model, models, keyRequestCounts, validateLLM, callWithRetry } from "../services/llmService.js";
 
 // Import database collections
 import { nutritionItems } from "../config/db.js";
@@ -35,8 +35,31 @@ import { saveMeal, updateDailyNutrition, trackEstimatedFoods } from "../services
 
 
 
+// Calls LLM with key rotation on 429 — tries each key in order until one succeeds
+async function callWithKeyRotation(promptFn, options) {
+  if (models.length === 0) throw new Error("No LLM keys configured");
+  let lastErr;
+  for (let i = 0; i < models.length; i++) {
+    const keyIdx = i % models.length;
+    try {
+      const res = await callWithRetry(() => promptFn(models[keyIdx]), options);
+      keyRequestCounts[keyIdx] = (keyRequestCounts[keyIdx] || 0) + 1;
+      console.log(`[LLM key-${keyIdx + 1}] requests today: ${keyRequestCounts[keyIdx]}`);
+      return res;
+    } catch (err) {
+      const is429 = err?.message?.includes("429") || err?.status === 429;
+      if (is429) {
+        console.warn(`[LLM key-${keyIdx + 1}] quota exceeded, trying next key...`);
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 // ---------------------------
-// Controller: analyzeTextMeal
 // - Uses LLM when available; otherwise uses simpleParse fallback
 // - Ensures parsed.items is always an array of { name, quantity, unit, preparation }
 // - Uses robust matching (findNutritionDocByName) to map items to nutrition DB
@@ -65,8 +88,7 @@ export async function analyzeTextMeal(req, res) {
     let usedFallback = false;
     let preparationHint = null;
 
-    if (!model) {
-      // No LLM configured — use deterministic fallback
+    if (!model) {      // No LLM configured — use deterministic fallback
       usedFallback = true;
       const fallbackParsed = simpleParse(text);
       rawText = JSON.stringify(fallbackParsed);
@@ -102,13 +124,11 @@ Rules:
 Input: """${text}"""
 `.trim();
 
-      // Use the model safely — if it fails, fallback
       if (model) {
         try {
-          // Try LLM with retry wrapper
-          const llmResponse = await callWithRetry(
-            () => model.generateContent(prompt),
-            { retries: 2, timeoutMs: 5000 }
+          const llmResponse = await callWithKeyRotation(
+            (m) => m.generateContent(prompt),
+            { retries: 2, timeoutMs: 10000 }
           );
           rawText = llmResponse?.response?.text?.() ?? String(llmResponse);
         } catch (err) {
@@ -300,9 +320,9 @@ Return exactly this JSON shape (values must be per 100g):
   "fiber": number,
   "sugar": number
 }`.trim();
-            const llmNutritionResponse = await callWithRetry(
-              () => model.generateContent(nutritionPrompt),
-              { retries: 1, timeoutMs: 5000 }
+            const llmNutritionResponse = await callWithKeyRotation(
+              (m) => m.generateContent(nutritionPrompt),
+              { retries: 1, timeoutMs: 12000 }
             );
             let llmNutritionRaw = llmNutritionResponse?.response?.text?.() ?? "";
             llmNutritionRaw = llmNutritionRaw.replace(/```(?:json)?\s*([\s\S]*?)\s*```/i, "$1").trim();

@@ -1,0 +1,497 @@
+PROJECT OVERVIEW
+This is a comprehensive nutrition tracking application called NutriAI that allows users to log meals via text or image, track daily nutrition intake, get predictive insights, and interact with an AI assistant. The app uses AI (Google Gemini) for parsing food descriptions, analyzing images, and providing personalized nutrition advice. It supports user profiles with calculated BMR, maintenance calories, and daily targets based on personal details like age, weight, height, activity level, and goals (weight loss, muscle gain, or maintenance).
+
+The application consists of a full-stack architecture with a Node.js/Express backend and a React frontend. Users can sign up, set their profile, log meals, view history, get tomorrow's predictions, insights on eating patterns, risk analysis, and chat with an AI for nutrition questions.
+
+TECH STACK
+Frontend Frameworks: React 19.2.0 with Vite for build tool, React Router DOM for routing, Zustand for state management.
+Backend Frameworks: Node.js with Express 5.2.1, ES modules.
+Libraries: Google Generative AI (@google/generative-ai 0.24.1) for LLM text parsing and chat, bcryptjs for password hashing, jsonwebtoken for auth, mongoose for MongoDB ODM, multer for file uploads, cors for cross-origin, dotenv for env vars, AJV for JSON validation.
+Databases: MongoDB with native driver and Mongoose for schemas.
+APIs: Google Gemini API for AI features, internal REST APIs for frontend-backend communication.
+Build Tools: Vite for frontend, npm for package management.
+Package Managers: npm for both frontend and backend.
+Additional: Tailwind CSS for styling, Framer Motion for animations, Fuse.js for fuzzy search, Recharts for charts, React Hook Form for forms, React Hot Toast for notifications.
+
+Why each is used: React provides a component-based UI; Vite offers fast development; Express handles server routing; MongoDB stores user data, meals, profiles; Gemini enables AI parsing and chat; Zustand manages global state simply.
+
+PROJECT FOLDER STRUCTURE
+/nutri-app
+  /backend
+    Entry point for the server-side application.
+    /config
+      Database connection setup.
+      /db.js: Connects to MongoDB, sets up collections for nutrition items, meals, daily nutrition, estimated foods, users.
+      /index.js: Exports connectDB.
+    /constants
+      /units.js: Defines UNIT_GRAMS_MAP for converting units to grams, SYNONYMS for food name matching, PREPARATION_WORDS for parsing.
+    /controllers
+      Handle HTTP requests and responses.
+      /authController.js: Handles user registration and login with JWT.
+      /chatController.js: Processes chat messages using Gemini AI with user data context.
+      /geminiDebugController.js: Lists available Gemini models for debugging.
+      /imageFoodLogController.js: Handles image upload, ML analysis, and meal logging.
+      /mealDataController.js: Manages meal history, daily nutrition, food lookup.
+      /predictiveController.js: Provides tomorrow predictions, insights, risk analysis.
+      /profileController.js: Updates and retrieves user profiles with computed nutrition targets.
+      /textFoodLogController.js: Analyzes text meals, saves meals to DB.
+    /middleware
+      (Empty in provided structure)
+    /ml
+      /best.pt: YOLO model weights.
+      /predict.py: Python script for image analysis using YOLO.
+      /yolov8n-cls.pt: YOLO classification model.
+    /models
+      Mongoose schemas for data.
+      /DailyNutrition.js: Aggregates daily nutrition totals per user/date.
+      /Meal.js: Stores individual logged meals with items.
+      /user.js: User schema with name, email, password hash.
+      /UserProfile.js: User profile with personal details, computed targets.
+    /parsers
+      /foodTextParser.js: Deterministic parser for text meal input as fallback.
+    /routes
+      Define API endpoints.
+      /authRoutes.js: /register, /login.
+      /chatRoutes.js: / POST for chat.
+      /imageFoodLogRoutes.js: /analyze POST for image, /log-image-meal POST.
+      /mealDataRoutes.js: /meals/:userId GET, /daily/add POST, /daily/:userId/:date GET, /food/:name GET.
+      /predictiveRoutes.js: /:userId/tomorrow GET, /:userId/insights GET, /:userId/risk GET.
+      /profileRoutes.js: /update POST, /:userId GET.
+      /textFoodLogRoutes.js: /analyze-text-meal POST, /save-text-meal POST, /models GET.
+    /services
+      Business logic.
+      /bmrCalculationService.js: Computes BMR, maintenance, targets using Mifflin-St Jeor.
+      /foodMatchingService.js: Matches food names to DB, scores candidates, finds variants.
+      /imageAnalysisService.js: Runs Python ML script for image analysis.
+      /llmService.js: Sets up Gemini model, validates responses.
+      /mealPersistenceService.js: Saves meals, updates daily totals, tracks estimated foods.
+      /nutritionCalculationService.js: Calculates grams, macros from food docs.
+      /userNutritionDataService.js: Fetches week data, user profiles, goals.
+    /uploads
+      Directory for uploaded images.
+    /utils
+      /dateUtils.js: Formats dates to YYYY-MM-DD.
+      /textUtils.js: Normalizes units, escapes regex, normalizes text.
+    /validation
+      (Empty)
+    package.json: Dependencies and scripts.
+    server.js: Main server file, sets up Express, routes, DB.
+    test-food.js: Test file for food analysis.
+    test-key.js: Test for keys.
+    testConnection.js: DB connection test.
+    updateSearchTerms.js: Updates search terms in DB.
+  /frontend
+    Client-side application.
+    eslint.config.js: ESLint configuration.
+    index.html: HTML template.
+    package.json: Dependencies and scripts.
+    README.md: Project readme.
+    vite.config.js: Vite config with React and Tailwind.
+    /public
+      Static assets.
+    /src
+      /apiManager
+        API client functions.
+        /auth.js: Login, register, logout.
+        /chatApi.js: Send chat messages.
+        /foodApi.js: Analyze text/image, save meals, get daily nutrition.
+        /predictiveApi.js: Get predictions, insights, risk.
+        /profileApi.js: Update, get profile.
+      /components
+        Reusable UI components.
+        /FoodImageLogger.jsx: Image upload and logging UI.
+        /FoodTextLogger.jsx: Text input and logging UI.
+        /Navbar.jsx: Top navigation with logo and user menu.
+        /PredictiveTomorrow.jsx: Shows tomorrow's predicted intake.
+        /ProtectedRoute.jsx: Guards authenticated routes.
+        /ScrollToTop.jsx: Scrolls to top on route change.
+        /Sidebar.jsx: Side navigation menu.
+      /hooks
+        Custom React hooks.
+        /useDailyNutrition.js: Manages daily totals state and API calls.
+        /useHistoryData.js: Fetches history data.
+        /useMealAnalysis.js: Handles meal analysis and saving.
+      /layout
+        /AppLayout.jsx: Main layout component.
+      /pages
+        Page components.
+        /Assistant.jsx: Chat interface.
+        /Dashboard.jsx: Main dashboard with logging and stats.
+        /History.jsx: Meal history view.
+        /Home.jsx: Landing page.
+        /Profile.jsx: User profile form.
+        /Signin.jsx: Login form.
+        /Signup.jsx: Registration form.
+      /router
+        /index.jsx: React Router configuration.
+      /store
+        /user.js: Zustand store for user state.
+      /utils
+        /fuzzy.js: Fuzzy search utilities.
+        /nutritionEngine.js: Client-side nutrition calculations (mirrored from backend).
+        /weekUtils.js: Utilities for week data formatting.
+      App.jsx: Root component.
+      helper.js: Token management helpers.
+      index.css: Global styles.
+      main.jsx: Entry point, renders App.
+  test-food.js: Root level test file.
+
+FILE BY FILE EXPLANATION
+
+File: backend/server.js
+Purpose: Entry point of the backend application.
+Imports: Express, dotenv, cors, connectDB from config, various route modules.
+Functions:
+startServer(): Initializes Express app, uses cors and json middleware, mounts routes for auth, profile, api (text food log, meal data, predictive), food-image, api/chat. Loads dotenv, connects DB, listens on PORT (5000 default). Logs presence of API keys.
+
+File: backend/config/db.js
+Purpose: Handles MongoDB connection and collection setup.
+Imports: MongoClient, mongoose, dotenv.
+Functions:
+sanitizeMongoUri(): Removes deprecated query options from URI.
+connectDB(): Connects native MongoDB driver, sets db, nutritionItems, mealsCol, dailyNutritionCol, estimatedCol, usersCol collections.
+
+File: backend/config/index.js
+Purpose: Exports connectDB.
+
+File: backend/constants/units.js
+Purpose: Defines constants for unit conversions and parsing.
+Exports: UNIT_GRAMS_MAP (handful:30, bowl:150, etc.), SYNONYMS (roti:chapati, etc.), STOPWORDS, PREPARATION_WORDS.
+
+File: backend/controllers/authController.js
+Purpose: Manages user authentication.
+Imports: User, UserProfile models, bcrypt, jwt.
+Functions:
+register(): Takes name, email, password; checks existing user; hashes password; creates user; creates blank profile; signs JWT; returns token and user.
+login(): Takes email, password; finds user; compares hash; updates lastLogin; signs JWT; returns token and user.
+
+File: backend/controllers/chatController.js
+Purpose: Handles AI chat interactions.
+Imports: GoogleGenerativeAI, ObjectId, dotenv, db collections, getWeekNutrition, getUserProfile.
+Functions:
+handleChat(): Takes userId, message, history; fetches week data and profile; builds system prompt with real user data; sets up Gemini chat with history; sends message; returns reply with context.
+
+File: backend/controllers/geminiDebugController.js
+Purpose: Debug endpoint for Gemini models.
+Imports: dotenv.
+Functions:
+listModelsHandler(): Fetches and lists available Gemini models from API.
+
+File: backend/controllers/imageFoodLogController.js
+Purpose: Processes image-based meal logging.
+Imports: ObjectId, analyzeFood, computeTotalsFromItems, parseMlQuantityToGrams, computeNutritionFromDoc, saveMeal, updateDailyNutrition, nutritionItems, getLocalDateString.
+Functions:
+analyzeImageAdapter(): Uploads image; runs ML analysis; if no DB match, falls back to text analysis; returns preview or analysis.
+logImageMeal(): Takes userId, rawInput, items, totals; normalizes items; saves meal; updates daily nutrition.
+
+File: backend/controllers/mealDataController.js
+Purpose: Manages meal data retrieval and updates.
+Imports: ObjectId, nutritionItems, mealsCol, dailyNutritionCol, escapeRegex, normalizeText, pickCandidateByPreparation, dedupeAndShapeCandidates, findNutritionDocByName.
+Functions:
+getFood(): Finds food by name, returns doc or candidates.
+getMeals(): Fetches user's meals with pagination.
+getDailyNutrition(): Gets daily totals for user/date.
+postAddToDaily(): Upserts daily nutrition totals.
+
+File: backend/controllers/predictiveController.js
+Purpose: Provides predictive features.
+Imports: ObjectId, dotenv, dailyNutritionCol, usersCol, getLastNDays, getUserGoals.
+Functions:
+getPredictiveTomorrow(): Calculates predicted intake using last 7 days average or regression; assesses risk; returns prediction and targets.
+getInsights(): Analyzes patterns for low protein, fiber, etc.; returns insights.
+getRiskAnalysis(): Computes risk score from factors; returns level, score, factors.
+
+File: backend/controllers/profileController.js
+Purpose: Handles user profile operations.
+Imports: UserProfile, computeServerDerived.
+Functions:
+updateProfile(): Takes profile data; computes derived values; updates or creates profile; returns profile.
+getProfile(): Fetches or creates blank profile.
+
+File: backend/controllers/textFoodLogController.js
+Purpose: Analyzes and saves text-based meals.
+Imports: Many services and utils.
+Functions:
+analyzeTextMeal(): Parses text with LLM or fallback; matches foods; estimates unknown; returns meal and candidates.
+saveTextMeal(): Saves pre-computed meal; updates daily; tracks estimated.
+
+File: backend/models/DailyNutrition.js
+Purpose: Schema for daily aggregated nutrition.
+Fields: userId, date, completedCalories, etc., mealIds.
+
+File: backend/models/Meal.js
+Purpose: Schema for logged meals.
+Fields: userId, rawInput, date, items (array with macros), totals.
+
+File: backend/models/user.js
+Purpose: User schema.
+Fields: name, email, passwordHash, timestamps.
+
+File: backend/models/UserProfile.js
+Purpose: User profile schema.
+Fields: userId, personal details, preferences, medicalFlags, derived fields like bmi, bmr, targets.
+
+File: backend/parsers/foodTextParser.js
+Purpose: Fallback text parser.
+Functions:
+simpleParse(): Parses text into items with name, quantity, unit, preparation.
+
+File: backend/routes/authRoutes.js
+Purpose: Auth routes.
+Routes: POST /register -> register, POST /login -> login.
+
+File: backend/routes/chatRoutes.js
+Purpose: Chat routes.
+Routes: POST / -> handleChat.
+
+File: backend/routes/imageFoodLogRoutes.js
+Purpose: Image routes.
+Routes: POST /analyze -> analyzeImageAdapter, POST /log-image-meal -> logImageMeal.
+
+File: backend/routes/mealDataRoutes.js
+Purpose: Meal data routes.
+Routes: GET /meals/:userId -> getMeals, POST /daily/add -> postAddToDaily, GET /daily/:userId/:date -> getDailyNutrition, GET /food/:name -> getFood.
+
+File: backend/routes/predictiveRoutes.js
+Purpose: Predictive routes.
+Routes: GET /:userId/tomorrow -> getPredictiveTomorrow, GET /:userId/insights -> getInsights, GET /:userId/risk -> getRiskAnalysis.
+
+File: backend/routes/profileRoutes.js
+Purpose: Profile routes.
+Routes: POST /update -> updateProfile, GET /:userId -> getProfile.
+
+File: backend/routes/textFoodLogRoutes.js
+Purpose: Text food routes.
+Routes: POST /analyze-text-meal -> analyzeTextMeal, POST /save-text-meal -> saveTextMeal, GET /models -> listModelsHandler.
+
+File: backend/services/bmrCalculationService.js
+Purpose: Computes nutrition targets.
+Functions:
+computeServerDerived(): Calculates BMI, BMR, maintenance, targets based on profile.
+
+File: backend/services/foodMatchingService.js
+Purpose: Matches foods to DB.
+Functions:
+scoreCandidates(), pickCandidateByPreparation(), dedupeAndShapeCandidates(), findRelatedVariants(), findNutritionDocByName().
+
+File: backend/services/imageAnalysisService.js
+Purpose: Runs ML on images.
+Functions:
+analyzeFood(): Spawns Python script, parses output.
+
+File: backend/services/llmService.js
+Purpose: Sets up Gemini.
+Exports: model, validateLLM, callWithRetry.
+
+File: backend/services/mealPersistenceService.js
+Purpose: Persists meals.
+Functions:
+saveMeal(), updateDailyNutrition(), trackEstimatedFoods().
+
+File: backend/services/nutritionCalculationService.js
+Purpose: Calculates nutrition.
+Functions:
+computeTotalsFromItems(), sumOrZero(), calculateGrams(), calculateMacros().
+
+File: backend/services/userNutritionDataService.js
+Purpose: Fetches user data.
+Functions:
+getWeekNutrition(), getUserProfile(), getLastNDays(), getUserGoals().
+
+File: backend/utils/dateUtils.js
+Purpose: Date utilities.
+Functions:
+getLocalDateString().
+
+File: backend/utils/textUtils.js
+Purpose: Text utilities.
+Functions:
+normalizeUnit(), escapeRegex(), normalizeText().
+
+File: frontend/src/main.jsx
+Purpose: Entry point.
+Renders RouterProvider with router and Toaster.
+
+File: frontend/src/App.jsx
+Purpose: Root component.
+Renders RouterProvider and Toaster.
+
+File: frontend/src/router/index.jsx
+Purpose: Router config.
+Defines routes for home, signin, signup, dashboard, profile, assistant, history. Wraps with WithSidebar.
+
+File: frontend/src/store/user.js
+Purpose: User state store.
+Uses Zustand for user, setUser, clearUser, logoutFlag.
+
+File: frontend/src/components/Navbar.jsx
+Purpose: Navigation bar.
+Shows logo, user dropdown with sign out.
+
+File: frontend/src/components/Sidebar.jsx
+Purpose: Side menu.
+Links to dashboard, profile, assistant, history.
+
+File: frontend/src/components/FoodTextLogger.jsx
+Purpose: Text logging component.
+Input text, analyze, show results, save.
+
+File: frontend/src/components/FoodImageLogger.jsx
+Purpose: Image logging component.
+Upload image, analyze, show preview, save.
+
+File: frontend/src/components/PredictiveTomorrow.jsx
+Purpose: Tomorrow prediction display.
+Shows predicted intake and risk.
+
+File: frontend/src/components/ProtectedRoute.jsx
+Purpose: Auth guard.
+Checks token, redirects if not authenticated.
+
+File: frontend/src/components/ScrollToTop.jsx
+Purpose: Scroll utility.
+
+File: frontend/src/pages/Dashboard.jsx
+Purpose: Main dashboard.
+Shows daily progress, logging forms, predictions.
+
+File: frontend/src/pages/Home.jsx
+Purpose: Landing page.
+
+File: frontend/src/pages/Signin.jsx
+Purpose: Login page.
+
+File: frontend/src/pages/Signup.jsx
+Purpose: Signup page.
+
+File: frontend/src/pages/Profile.jsx
+Purpose: Profile setup.
+
+File: frontend/src/pages/Assistant.jsx
+Purpose: Chat page.
+
+File: frontend/src/pages/History.jsx
+Purpose: History page.
+
+File: frontend/src/hooks/useDailyNutrition.js
+Purpose: Hook for daily totals.
+
+File: frontend/src/hooks/useHistoryData.js
+Purpose: Hook for history.
+
+File: frontend/src/hooks/useMealAnalysis.js
+Purpose: Hook for meal analysis.
+
+File: frontend/src/apiManager/auth.js
+Purpose: Auth API calls.
+
+File: frontend/src/apiManager/chatApi.js
+Purpose: Chat API.
+
+File: frontend/src/apiManager/foodApi.js
+Purpose: Food logging API.
+
+File: frontend/src/apiManager/predictiveApi.js
+Purpose: Predictive API.
+
+File: frontend/src/apiManager/profileApi.js
+Purpose: Profile API.
+
+File: frontend/src/utils/fuzzy.js
+Purpose: Fuzzy search.
+
+File: frontend/src/utils/nutritionEngine.js
+Purpose: Client nutrition calc.
+
+File: frontend/src/utils/weekUtils.js
+Purpose: Week formatting.
+
+File: frontend/src/helper.js
+Purpose: Token helpers.
+
+APPLICATION STARTUP FLOW
+Backend: Run npm start or node server.js. Loads dotenv, calls connectDB to connect MongoDB. Creates Express app, uses cors, express.json. Mounts routes. Listens on PORT, logs API key presence.
+
+Frontend: Run npm run dev. Vite starts dev server. Loads main.jsx, renders App with RouterProvider and Toaster.
+
+REQUEST FLOW (END TO END)
+Example: User logs in.
+Frontend: Signin form calls auth.js login API, posts email/password to /auth/login.
+Backend: authController.login verifies, returns token.
+Frontend: Stores token, sets user in store, navigates to dashboard.
+
+User analyzes text meal.
+Frontend: FoodTextLogger calls useMealAnalysis.analyzeTextMeal, posts text to /api/analyze-text-meal.
+Backend: textFoodLogController.analyzeTextMeal uses LLM or fallback to parse, matches foods, returns meal and candidates.
+Frontend: Displays results, allows save.
+
+User saves meal.
+Frontend: Calls saveTextMeal, posts meal to /api/save-text-meal.
+Backend: Saves to meals, updates daily_nutrition, tracks estimated.
+
+API STRUCTURE
+POST /auth/register: Register user. Body: {name, email, password}. Response: {token, user}.
+POST /auth/login: Login. Body: {email, password}. Response: {token, user}.
+
+POST /profile/update: Update profile. Body: profile data. Response: profile.
+GET /profile/:userId: Get profile. Response: profile.
+
+POST /api/analyze-text-meal: Analyze text. Body: {text, userId}. Response: {meal, candidates}.
+POST /api/save-text-meal: Save meal. Body: {meal, userId}. Response: {meal}.
+
+POST /food-image/analyze: Analyze image. Multipart image. Response: {success, ml, preview/analysis}.
+POST /food-image/log-image-meal: Log image meal. Body: {userId, items, totals}. Response: {meal}.
+
+GET /api/meals/:userId: Get meals. Query: limit, before. Response: {meals}.
+POST /api/daily/add: Add to daily. Body: {userId, date, totals, mealId}. Response: {daily}.
+GET /api/daily/:userId/:date: Get daily. Response: {daily}.
+GET /api/food/:name: Lookup food. Response: food doc.
+
+GET /api/predictive/:userId/tomorrow: Tomorrow prediction. Response: prediction data.
+GET /api/predictive/:userId/insights: Insights. Response: insights.
+GET /api/predictive/:userId/risk: Risk analysis. Response: risk data.
+
+POST /api/chat: Chat. Body: {userId, message, history}. Response: {reply, context}.
+
+DATA FLOW
+Frontend state: Zustand store for user. Hooks manage API data.
+API calls: Fetch profile on dashboard load. Analyze meal on input. Save on confirm.
+JSON data: Requests/responses in JSON. Nutrition values as numbers.
+UI updates: After API, update local state, re-render components.
+
+FRONTEND WORKFLOW
+Routing: React Router with protected routes.
+Components: Dashboard integrates logging, stats. FoodTextLogger handles text input, analysis, save. Calls analyzeTextMeal API, displays meal, candidates. On save, calls saveTextMeal, refreshes daily totals.
+State management: Zustand for user. Hooks for data.
+API communication: apiManager functions use fetch to backend.
+UI updates: After save, refresh daily nutrition hook, update rings.
+
+BACKEND WORKFLOW
+Routes: Mounted in server.js, handle requests to controllers.
+Controllers: Auth handles auth. TextFoodLog analyzes/saves. ImageFoodLog for images. MealData for data. Predictive for insights.
+Services: BMR computes targets. FoodMatching finds docs. LLM for AI. Persistence saves data.
+Middleware: None specific, uses cors, json.
+
+DATABASE STRUCTURE
+Type: MongoDB.
+Collections: users (User schema), userprofiles (UserProfile), meals (Meal), daily_nutrition (DailyNutrition), food_nutrition_DB (nutrition items), llm_estimated_foods (estimated).
+Relationships: Meals reference User. DailyNutrition aggregates per user/date. Profiles reference User.
+
+IMPORTANT FUNCTIONS
+computeServerDerived: Calculates all nutrition targets from profile.
+findNutritionDocByName: Robust food matching with scoring.
+analyzeTextMeal: Parses text, matches, estimates.
+saveMeal: Inserts meal document.
+updateDailyNutrition: Increments daily totals.
+getPredictiveTomorrow: Predicts based on history.
+handleChat: Chats with Gemini using user context.
+
+ERROR HANDLING
+Backend: Try-catch in controllers, return 400/500 with messages. LLM fallbacks to simpleParse. ML errors logged.
+Frontend: Toast notifications for errors. Loading states.
+
+SECURITY FEATURES
+Auth: JWT tokens, bcrypt hashing. Protected routes check token. Profile updates require userId.
+
+COMPLETE EXECUTION FLOW SUMMARY
+User opens app: Loads home page. Signs up: Registers, sets profile. Logs in: Gets token, dashboard loads profile, daily totals. Logs meal: Analyzes text/image, shows preview, saves to DB, updates daily. Views predictions: Fetches tomorrow/insights/risk. Chats: Sends message, gets AI reply with data context. History: Fetches meals. All data flows through REST APIs, state managed in frontend, persisted in MongoDB.

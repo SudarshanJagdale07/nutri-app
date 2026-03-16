@@ -8,8 +8,24 @@ dotenv.config();
 // Gemini / Generative AI setup (may be absent in dev)
 // Re-introduce LLM branch into analysis (optional, uses your Gemini key if configured).
 // ---------------------------
-const genAI = process.env.GEMINI_API_KEY_TEXT ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY_TEXT) : null;
-const model = genAI ? genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-2.5-flash" }) : null;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+const TEXT_KEYS = [
+  process.env.GEMINI_API_KEY_TEXT_1,
+  process.env.GEMINI_API_KEY_TEXT_2,
+  process.env.GEMINI_API_KEY_TEXT_3,
+  process.env.GEMINI_API_KEY_TEXT_4,
+].filter(Boolean);
+
+const keyRequestCounts = {};
+TEXT_KEYS.forEach((_, i) => { keyRequestCounts[i] = 0; });
+
+const models = TEXT_KEYS.map(key =>
+  new GoogleGenerativeAI(key).getGenerativeModel({ model: GEMINI_MODEL })
+);
+
+let currentKeyIndex = 0;
+const model = models.length > 0 ? models[0] : null;
 
 // ---------------------------
 // Schema validator for LLM output
@@ -26,13 +42,13 @@ const schema = {
           name: { type: "string" },
           quantity: { type: "number" },
           unit: { type: "string" },
-          preparation: { type: "string" }, // added field for preparation (home/outside/packaged)
-          estimatedGrams: { type: "number" }
+          preparation: { type: ["string", "null"] },
+          estimatedGrams: { type: ["number", "null"] }
         },
         required: ["name", "quantity", "unit"]
       }
     },
-    preparationHint: { type: "string" }
+    preparationHint: { type: ["string", "null"] }
   },
   required: ["items"]
 };
@@ -62,4 +78,4 @@ async function callWithRetry(fn, { retries = 2, timeoutMs = 8000 } = {}) {
   throw lastErr;
 }
 
-export { model, validateLLM, callWithRetry };
+export { model, models, currentKeyIndex, keyRequestCounts, TEXT_KEYS, validateLLM, callWithRetry };
